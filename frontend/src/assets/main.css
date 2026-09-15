@@ -1,0 +1,40 @@
+:root {
+  --rc-bg: #f5f7fb;
+}
+
+body {
+  background-color: var(--rc-bg);
+}
+
+.app-shell {
+  background-color: var(--rc-bg);
+}
+
+/* Host cards lift slightly on hover for a tactile feel. */
+.host-card {
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+.host-card:hover {
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Full-screen sign-in backdrop. */
+.login-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+  padding: 1.5rem;
+}
+.login-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.monospace {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

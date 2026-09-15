@@ -1,0 +1,97 @@
+name: Release
+
+# Tag a commit `vX.Y.Z` and push the tag: this builds the Windows host agent
+# with the Firebase project embedded, bundles ffmpeg, and publishes
+# freedesk-host-windows-x64.zip on the GitHub release.
+#
+# Required repository VARIABLES (Settings → Secrets and variables → Actions):
+#   FIREBASE_API_KEY, FIREBASE_PROJECT_ID, FIREBASE_DATABASE_URL
+# (the same public web values the viewer uses; the security rules protect the data).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  # Official static ffmpeg build for Windows (LGPL variant: contains gdigrab and
+  # libvpx, which is all the agent needs). Major version pinned; patch rolling.
+  FFMPEG_ZIP_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-lgpl-9.0.zip
+
+jobs:
+  windows:
+    name: Build and publish (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host-agent/go.mod
+          cache-dependency-path: host-agent/go.sum
+
+      - name: Check Firebase variables
+        shell: pwsh
+        run: |
+          foreach ($name in "FIREBASE_API_KEY", "FIREBASE_PROJECT_ID", "FIREBASE_DATABASE_URL") {
+            if (-not (Get-Item "env:$name" -ErrorAction SilentlyContinue).Value) {
+              throw "Repository variable $name is not set (Settings → Secrets and variables → Actions → Variables)."
+            }
+          }
+        env:
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
+
+      - name: Build host agent
+        shell: pwsh
+        working-directory: host-agent
+        env:
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
+          CGO_ENABLED: "0"
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $module = (go list -m)
+          $cfg = "$module/internal/config"
+          $ldflags = "-s -w " +
+            "-X main.appVersion=$version " +
+            "-X $cfg.BuildAPIKey=$env:FIREBASE_API_KEY " +
+            "-X $cfg.BuildProjectID=$env:FIREBASE_PROJECT_ID " +
+            "-X $cfg.BuildDatabaseURL=$env:FIREBASE_DATABASE_URL"
+          New-Item -ItemType Directory -Force ../dist | Out-Null
+          go build -trimpath -ldflags $ldflags -o ../dist/freedesk-host.exe ./cmd/host
+          Get-Item ../dist/freedesk-host.exe | Format-Table Name, Length
+
+      - name: Fetch ffmpeg
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri $env:FFMPEG_ZIP_URL -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-src
+          $exe = Get-ChildItem ffmpeg-src -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $exe) { throw "ffmpeg.exe not found in the downloaded archive" }
+          Copy-Item $exe.FullName dist/ffmpeg.exe
+          $license = Get-ChildItem ffmpeg-src -Recurse -Filter LICENSE.txt | Select-Object -First 1
+          if ($license) { Copy-Item $license.FullName dist/ffmpeg-LICENSE.txt }
+          # The agent needs the GDI screen grabber and the VP8 encoder.
+          $devices = & dist/ffmpeg.exe -hide_banner -devices 2>&1 | Out-String
+          $encoders = & dist/ffmpeg.exe -hide_banner -encoders 2>&1 | Out-String
+          if ($devices -notmatch "gdigrab") { throw "this ffmpeg build has no gdigrab" }
+          if ($encoders -notmatch "libvpx") { throw "this ffmpeg build has no libvpx (VP8)" }
+          & dist/ffmpeg.exe -version | Select-Object -First 1
+
+      - name: Assemble zip
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE dist/LICENSE.txt
+          Copy-Item host-agent/release/README.txt dist/README.txt
+          Compress-Archive -Path dist/* -DestinationPath freedesk-host-windows-x64.zip
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: freedesk-host-windows-x64.zip
+          generate_release_notes: true

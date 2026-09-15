@@ -1,0 +1,83 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "hosts": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && $code.matches(/^[0-9]{9}$/) && (!data.exists() || data.child('ownerUid').val() === auth.uid || data.child('lastSeen').val() < now - 300000)",
+        ".validate": "newData.hasChildren(['ownerUid', 'name', 'lastSeen'])",
+        "ownerUid": { ".validate": "newData.isString() && newData.val() === auth.uid" },
+        "name":     { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64" },
+        "version":  { ".validate": "newData.isString() && newData.val().length <= 32" },
+        "lastSeen": { ".validate": "newData.isNumber() && newData.val() <= now && newData.val() >= now - 60000" },
+        "$other":   { ".validate": false }
+      }
+    },
+
+    "inbox": {
+      "$ownerUid": {
+        ".read": "auth != null && auth.uid === $ownerUid",
+        "$sessionId": {
+          ".write": "auth != null && (auth.uid === $ownerUid || (!data.exists() && newData.child('viewerUid').val() === auth.uid) || data.child('viewerUid').val() === auth.uid || (!newData.exists() && data.exists() && data.child('createdAt').val() < now - 120000) || (!data.exists() && !newData.exists()))",
+          ".validate": "newData.hasChildren(['viewerUid', 'code', 'createdAt'])",
+          "viewerUid": { ".validate": "newData.isString() && newData.val() === auth.uid" },
+          "code":      { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{9}$/)" },
+          "createdAt": { ".validate": "newData.isNumber() && newData.val() <= now && newData.val() >= now - 60000" },
+          "$other":    { ".validate": false }
+        }
+      }
+    },
+
+    "sessions": {
+      "$sessionId": {
+        ".read": "auth != null && (data.child('viewerUid').val() === auth.uid || data.child('ownerUid').val() === auth.uid)",
+        ".write": "auth != null && ((!data.exists() && newData.child('viewerUid').val() === auth.uid) || data.child('viewerUid').val() === auth.uid || data.child('ownerUid').val() === auth.uid || (!newData.exists() && data.exists() && data.child('status').val() !== 'connected' && data.child('createdAt').val() < now - 3600000) || (!data.exists() && !newData.exists()))",
+        ".validate": "newData.hasChildren(['viewerUid', 'ownerUid', 'status', 'createdAt'])",
+        "viewerUid": { ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())" },
+        "ownerUid":  { ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())" },
+        "status":    { ".validate": "newData.isString() && (newData.val() === 'waiting' || newData.val() === 'connecting' || newData.val() === 'connected' || newData.val() === 'ended')" },
+        "createdAt": { ".validate": "newData.isNumber() && (data.exists() ? newData.val() === data.val() : (newData.val() <= now && newData.val() >= now - 60000))" },
+
+        "offer": {
+          ".validate": "newData.hasChildren(['type', 'sdp'])",
+          "type": { ".validate": "newData.isString()" },
+          "sdp": { ".validate": "newData.isString()" },
+          "$other": { ".validate": false }
+        },
+
+        "answer": {
+          ".validate": "newData.hasChildren(['type', 'sdp'])",
+          "type": { ".validate": "newData.isString()" },
+          "sdp": { ".validate": "newData.isString()" },
+          "$other": { ".validate": false }
+        },
+
+        "hostCandidates": {
+          "$candidateId": {
+            ".validate": "newData.hasChild('candidate')",
+            "candidate": { ".validate": "newData.isString()" },
+            "sdpMid": { ".validate": "newData.isString() || newData.val() === null" },
+            "sdpMLineIndex": { ".validate": "newData.isNumber() || newData.val() === null" },
+            "usernameFragment": { ".validate": "newData.isString() || newData.val() === null" },
+            "$other": { ".validate": false }
+          }
+        },
+
+        "viewerCandidates": {
+          "$candidateId": {
+            ".validate": "newData.hasChild('candidate')",
+            "candidate": { ".validate": "newData.isString()" },
+            "sdpMid": { ".validate": "newData.isString() || newData.val() === null" },
+            "sdpMLineIndex": { ".validate": "newData.isNumber() || newData.val() === null" },
+            "usernameFragment": { ".validate": "newData.isString() || newData.val() === null" },
+            "$other": { ".validate": false }
+          }
+        },
+
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# Local environment (contains your Firebase Web config)
+.env
+.env.*
+!.env.example
+# Emulator mode holds only demo values, so it is committed.
+!.env.emu
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea

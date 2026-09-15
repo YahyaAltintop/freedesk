@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  host-agent:
+    name: Host agent (Go, Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: host-agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host-agent/go.mod
+          cache-dependency-path: host-agent/go.sum
+      - name: gofmt
+        shell: bash
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then echo "gofmt needed:"; echo "$files"; exit 1; fi
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+
+  frontend:
+    name: Viewer (Vue)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run lint
+      - run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
+
+  rules:
+    name: Database rules (emulator)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host-agent/go.mod
+          cache-dependency-path: host-agent/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Run the rules + signaling E2E tests against the emulator
+        working-directory: firebase
+        run: |
+          npx --yes firebase-tools@latest emulators:exec --only "auth,database" --project demo-rcapp \
+            "cd ../host-agent && go test ./internal/firebase/ ./internal/webrtc/ -run Emulator -v -count=1"

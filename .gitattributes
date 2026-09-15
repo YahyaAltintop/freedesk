@@ -1,0 +1,20 @@
+# Normalize line endings: store as LF in the repo, check out native per OS.
+* text=auto
+
+# Explicit text types
+*.go      text
+*.ts      text
+*.vue     text
+*.js      text
+*.json    text
+*.md      text
+*.css     text
+*.html    text
+*.rules   text
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
