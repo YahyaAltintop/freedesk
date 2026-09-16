@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,10 +7,26 @@
       name="description"
       content="FreeDesk is a free, open-source remote desktop. See and control another Windows PC from your browser with a 9-digit code. No account, nothing stored."
     />
+    <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#0b0d14" />
-    <meta name="color-scheme" content="dark" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>FreeDesk — free remote desktop in your browser</title>
+    <!-- Apply the theme before the first paint: a remembered choice, else the
+         browser's preference. Kept in sync afterwards by src/composables/useTheme.ts. -->
+    <script>
+      ;(function () {
+        var theme = null
+        try {
+          theme = localStorage.getItem('freedesk.theme')
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        }
+        document.documentElement.setAttribute('data-bs-theme', theme)
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute('content', theme === 'dark' ? '#0b0d14' : '#f6f7fb')
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

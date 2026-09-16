@@ -3,7 +3,9 @@
 The viewer application that runs in the browser. There is no login screen: on startup an invisible **anonymous** Firebase session is established. The home page is also the product's landing page: it explains the flow, lets you enter a remote computer's 9-digit code and connect, shows this computer's own code when the host agent is running on the same machine, and otherwise offers the host agent download (the latest zip from the GitHub Releases of `VITE_GITHUB_REPO`).
 
 ## Technologies
-Vue 3 (Composition API) · TypeScript · Vite · Vue Router · Pinia · Bootstrap 5 (dark theme) · Firebase Web SDK (modular). Fonts are self-hosted through `@fontsource-variable` (Inter for text, JetBrains Mono for headings, codes and labels); the design tokens live in `src/assets/main.css`.
+Vue 3 (Composition API) · TypeScript · Vite · Vue Router · Pinia · Bootstrap 5 · Firebase Web SDK (modular). Fonts are self-hosted through `@fontsource-variable` (Inter for text, JetBrains Mono for headings, codes and labels); the design tokens live in `src/assets/main.css`.
+
+Light and dark themes: the browser's `prefers-color-scheme` decides on first visit, the sun/moon button in the header switches, and a manual choice is remembered per browser (`localStorage` key `freedesk.theme`). An inline script in `index.html` applies the theme before the first paint; `src/composables/useTheme.ts` keeps it in sync afterwards.
 
 ## Folder Structure
 ```

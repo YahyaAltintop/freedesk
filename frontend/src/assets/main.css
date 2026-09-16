@@ -1,11 +1,31 @@
 /* FreeDesk viewer: design tokens and the landing-page styles.
-   Dark, developer-tool look: JetBrains Mono for headings, codes and labels,
-   Inter for running text. Bootstrap 5 (data-bs-theme="dark") provides the
-   grid, forms, alerts and utilities; everything here is the visual layer. */
+   Developer-tool look in two themes: JetBrains Mono for headings, codes and
+   labels, Inter for running text. Bootstrap 5 provides the grid, forms,
+   alerts and utilities and switches its own colours on data-bs-theme; the
+   --fd-* tokens below switch ours. The inline script in index.html sets the
+   attribute before the first paint, src/composables/useTheme.ts keeps it. */
 
 :root {
   --fd-font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --fd-font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --fd-violet: #8b5cf6;
+  --fd-pink: #ec4899;
+  --fd-orange: #f97316;
+  --fd-green: #22c55e;
+  --fd-gradient: linear-gradient(135deg, #8b5cf6 0%, #ec4899 55%, #f97316 100%);
+  --fd-radius: 20px;
+  --fd-radius-sm: 12px;
+
+  --bs-body-font-family: var(--fd-font-sans);
+  --bs-font-monospace: var(--fd-font-mono);
+}
+
+/* ---- Dark theme (default when the browser prefers dark) ------------------ */
+
+:root,
+[data-bs-theme='dark'] {
+  color-scheme: dark;
 
   --fd-bg: #0b0d14;
   --fd-bg-elev: #11141d;
@@ -16,24 +36,92 @@
   --fd-ink: #eef0f6;
   --fd-muted: #9aa3b5;
   --fd-faint: #5f687b;
-  --fd-violet: #8b5cf6;
-  --fd-pink: #ec4899;
-  --fd-orange: #f97316;
-  --fd-green: #22c55e;
-  --fd-gradient: linear-gradient(135deg, #8b5cf6 0%, #ec4899 55%, #f97316 100%);
-  --fd-radius: 20px;
-  --fd-radius-sm: 12px;
 
-  /* Bootstrap hooks (override the dark theme defaults) */
+  --fd-nav-bg: rgba(11, 13, 20, 0.72);
+  --fd-card-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.8);
+  --fd-card-inset: rgba(255, 255, 255, 0.05);
+  --fd-glow-1: rgba(139, 92, 246, 0.3);
+  --fd-glow-2: rgba(236, 72, 153, 0.18);
+  --fd-glow-3: rgba(249, 115, 22, 0.12);
+  --fd-grid-line: rgba(255, 255, 255, 0.045);
+  --fd-code-bg: rgba(255, 255, 255, 0.06);
+  --fd-selection: rgba(236, 72, 153, 0.35);
+
+  --fd-badge-bg: rgba(139, 92, 246, 0.14);
+  --fd-badge-border: rgba(139, 92, 246, 0.3);
+  --fd-badge-color: #c4b5fd;
+  --fd-badge-success-bg: rgba(34, 197, 94, 0.12);
+  --fd-badge-success-border: rgba(34, 197, 94, 0.3);
+  --fd-badge-success-color: #4ade80;
+  --fd-badge-pink-bg: rgba(236, 72, 153, 0.12);
+  --fd-badge-pink-border: rgba(236, 72, 153, 0.3);
+  --fd-badge-pink-color: #f9a8d4;
+
+  --fd-input-bg: rgba(0, 0, 0, 0.35);
+  --fd-input-color: #fff;
+  --fd-input-disabled-bg: rgba(0, 0, 0, 0.25);
+  --fd-primary-shadow: rgba(236, 72, 153, 0.6);
+  --fd-trust-icon: var(--fd-pink);
+  --fd-step-num: var(--fd-pink);
+
   --bs-body-bg: var(--fd-bg);
   --bs-body-color: var(--fd-ink);
-  --bs-body-font-family: var(--fd-font-sans);
-  --bs-font-monospace: var(--fd-font-mono);
   --bs-secondary-color: var(--fd-muted);
   --bs-border-color: var(--fd-border);
   --bs-link-color-rgb: 196, 181, 253;
   --bs-link-hover-color-rgb: 221, 214, 254;
   --bs-code-color: #f0abfc;
+}
+
+/* ---- Light theme --------------------------------------------------------- */
+
+[data-bs-theme='light'] {
+  color-scheme: light;
+
+  --fd-bg: #f6f7fb;
+  --fd-bg-elev: #ffffff;
+  --fd-surface: #ffffff;
+  --fd-surface-strong: #f1f3f9;
+  --fd-border: rgba(15, 23, 42, 0.08);
+  --fd-border-strong: rgba(15, 23, 42, 0.16);
+  --fd-ink: #0f172a;
+  --fd-muted: #5b6478;
+  --fd-faint: #8a93a6;
+
+  --fd-nav-bg: rgba(246, 247, 251, 0.8);
+  --fd-card-shadow: 0 20px 50px -30px rgba(15, 23, 42, 0.3);
+  --fd-card-inset: rgba(255, 255, 255, 0.9);
+  --fd-glow-1: rgba(139, 92, 246, 0.16);
+  --fd-glow-2: rgba(236, 72, 153, 0.12);
+  --fd-glow-3: rgba(249, 115, 22, 0.1);
+  --fd-grid-line: rgba(15, 23, 42, 0.06);
+  --fd-code-bg: rgba(15, 23, 42, 0.06);
+  --fd-selection: rgba(236, 72, 153, 0.25);
+
+  --fd-badge-bg: rgba(139, 92, 246, 0.1);
+  --fd-badge-border: rgba(139, 92, 246, 0.25);
+  --fd-badge-color: #6d28d9;
+  --fd-badge-success-bg: rgba(34, 197, 94, 0.12);
+  --fd-badge-success-border: rgba(34, 197, 94, 0.35);
+  --fd-badge-success-color: #15803d;
+  --fd-badge-pink-bg: rgba(236, 72, 153, 0.1);
+  --fd-badge-pink-border: rgba(236, 72, 153, 0.28);
+  --fd-badge-pink-color: #be185d;
+
+  --fd-input-bg: #ffffff;
+  --fd-input-color: #0f172a;
+  --fd-input-disabled-bg: #f1f3f9;
+  --fd-primary-shadow: rgba(236, 72, 153, 0.4);
+  --fd-trust-icon: #db2777;
+  --fd-step-num: #db2777;
+
+  --bs-body-bg: var(--fd-bg);
+  --bs-body-color: var(--fd-ink);
+  --bs-secondary-color: var(--fd-muted);
+  --bs-border-color: var(--fd-border);
+  --bs-link-color-rgb: 124, 58, 237;
+  --bs-link-hover-color-rgb: 109, 40, 217;
+  --bs-code-color: #be185d;
 }
 
 body {
@@ -52,14 +140,14 @@ body {
 }
 
 ::selection {
-  background: rgba(236, 72, 153, 0.35);
+  background: var(--fd-selection);
 }
 
 code {
   font-size: 0.9em;
   padding: 0.1em 0.35em;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--fd-code-bg);
 }
 
 .fd-icon {
@@ -175,12 +263,12 @@ code {
   --bs-btn-disabled-border-color: transparent;
   --bs-btn-disabled-color: #fff;
   background-image: var(--fd-gradient);
-  box-shadow: 0 10px 28px -10px rgba(236, 72, 153, 0.6);
+  box-shadow: 0 10px 28px -10px var(--fd-primary-shadow);
 }
 .btn-fd-primary:hover:not(:disabled) {
   filter: brightness(1.08);
   transform: translateY(-1px);
-  box-shadow: 0 14px 32px -10px rgba(236, 72, 153, 0.7);
+  box-shadow: 0 14px 32px -10px var(--fd-primary-shadow);
 }
 .btn-fd-primary:disabled {
   filter: saturate(0.4);
@@ -191,12 +279,12 @@ code {
   --bs-btn-color: var(--fd-ink);
   --bs-btn-bg: var(--fd-surface);
   --bs-btn-border-color: var(--fd-border-strong);
-  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-color: var(--fd-ink);
   --bs-btn-hover-bg: var(--fd-surface-strong);
-  --bs-btn-hover-border-color: rgba(255, 255, 255, 0.3);
-  --bs-btn-active-color: #fff;
+  --bs-btn-hover-border-color: var(--fd-faint);
+  --bs-btn-active-color: var(--fd-ink);
   --bs-btn-active-bg: var(--fd-surface-strong);
-  --bs-btn-active-border-color: rgba(255, 255, 255, 0.3);
+  --bs-btn-active-border-color: var(--fd-faint);
 }
 .btn-fd-ghost:hover {
   transform: translateY(-1px);
@@ -208,7 +296,7 @@ code {
   position: sticky;
   top: 0;
   z-index: 1020;
-  background: rgba(11, 13, 20, 0.72);
+  background: var(--fd-nav-bg);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--fd-border);
@@ -226,7 +314,7 @@ code {
   text-decoration: none;
 }
 .fd-brand:hover {
-  color: #fff;
+  color: var(--fd-ink);
 }
 
 .fd-brand-mark {
@@ -243,8 +331,14 @@ code {
 
 .fd-nav-link {
   --bs-btn-color: var(--fd-muted);
-  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-color: var(--fd-ink);
+  --bs-btn-active-color: var(--fd-ink);
   text-decoration: none;
+}
+
+.fd-theme-toggle {
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
 }
 
 /* ---- Hero ---------------------------------------------------------------- */
@@ -259,9 +353,9 @@ code {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(55rem 30rem at 12% -12%, rgba(139, 92, 246, 0.3), transparent 60%),
-    radial-gradient(42rem 26rem at 96% 8%, rgba(236, 72, 153, 0.18), transparent 60%),
-    radial-gradient(32rem 20rem at 60% 115%, rgba(249, 115, 22, 0.12), transparent 60%);
+    radial-gradient(55rem 30rem at 12% -12%, var(--fd-glow-1), transparent 60%),
+    radial-gradient(42rem 26rem at 96% 8%, var(--fd-glow-2), transparent 60%),
+    radial-gradient(32rem 20rem at 60% 115%, var(--fd-glow-3), transparent 60%);
 }
 .fd-hero::after {
   content: '';
@@ -269,8 +363,8 @@ code {
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    linear-gradient(var(--fd-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--fd-grid-line) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: radial-gradient(75% 80% at 50% 25%, #000 20%, transparent 100%);
   -webkit-mask-image: radial-gradient(75% 80% at 50% 25%, #000 20%, transparent 100%);
@@ -307,7 +401,7 @@ code {
   gap: 0.45rem;
 }
 .fd-trust .fd-icon {
-  color: var(--fd-pink);
+  color: var(--fd-trust-icon);
 }
 
 /* ---- Cards --------------------------------------------------------------- */
@@ -320,8 +414,8 @@ code {
   padding: 1.6rem;
   color: var(--fd-ink);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 24px 60px -32px rgba(0, 0, 0, 0.8);
+    inset 0 1px 0 var(--fd-card-inset),
+    var(--fd-card-shadow);
 }
 
 /* Gradient-bordered variant for the primary card. */
@@ -366,19 +460,19 @@ code {
   justify-content: center;
   flex-shrink: 0;
   border-radius: 12px;
-  background: rgba(139, 92, 246, 0.14);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  color: #c4b5fd;
+  background: var(--fd-badge-bg);
+  border: 1px solid var(--fd-badge-border);
+  color: var(--fd-badge-color);
 }
 .fd-icon-badge.is-success {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.3);
-  color: #4ade80;
+  background: var(--fd-badge-success-bg);
+  border-color: var(--fd-badge-success-border);
+  color: var(--fd-badge-success-color);
 }
 .fd-icon-badge.is-pink {
-  background: rgba(236, 72, 153, 0.12);
-  border-color: rgba(236, 72, 153, 0.3);
-  color: #f9a8d4;
+  background: var(--fd-badge-pink-bg);
+  border-color: var(--fd-badge-pink-border);
+  color: var(--fd-badge-pink-color);
 }
 
 /* ---- Status pill --------------------------------------------------------- */
@@ -404,9 +498,9 @@ code {
   background: var(--fd-faint);
 }
 .fd-status.is-on {
-  color: #4ade80;
-  border-color: rgba(34, 197, 94, 0.35);
-  background: rgba(34, 197, 94, 0.1);
+  color: var(--fd-badge-success-color);
+  border-color: var(--fd-badge-success-border);
+  background: var(--fd-badge-success-bg);
 }
 .fd-status.is-on .fd-status-dot {
   background: var(--fd-green);
@@ -423,8 +517,8 @@ code {
   text-align: center;
   padding: 0.75rem 1rem;
   border-radius: 14px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.35);
+  color: var(--fd-input-color);
+  background: var(--fd-input-bg);
   border: 1px solid var(--fd-border-strong);
   box-shadow: none;
 }
@@ -437,27 +531,29 @@ code {
   box-shadow: 0 0 0 4px rgba(236, 72, 153, 0.18);
 }
 .form-control.fd-code-input:disabled {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--fd-input-disabled-bg);
   color: var(--fd-muted);
 }
 
 /* ---- Terminal mock (what the host program shows) ----------------------- */
+/* A terminal is dark in both themes; its colours are fixed on purpose. */
 
 .fd-term {
   background: #07090f;
-  border: 1px solid var(--fd-border);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   overflow: hidden;
   font-family: var(--fd-font-mono);
   font-size: 0.8rem;
+  color-scheme: dark;
 }
 .fd-term-bar {
   display: flex;
   align-items: center;
   gap: 0.45rem;
   padding: 0.55rem 0.9rem;
-  border-bottom: 1px solid var(--fd-border);
-  color: var(--fd-faint);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  color: #5f687b;
   font-size: 0.72rem;
 }
 .fd-term-dot {
@@ -478,14 +574,14 @@ code {
 .fd-term-body {
   padding: 0.9rem 1rem 1rem;
   line-height: 1.75;
-  color: var(--fd-muted);
+  color: #9aa3b5;
   overflow-wrap: anywhere;
 }
 .fd-term-k {
-  color: var(--fd-faint);
+  color: #5f687b;
 }
 .fd-term-dim {
-  color: var(--fd-faint);
+  color: #5f687b;
 }
 .fd-term-code {
   color: #fff;
@@ -532,7 +628,7 @@ code {
   font-size: 0.75rem;
   font-weight: 700;
   padding-top: 0.2rem;
-  color: var(--fd-pink);
+  color: var(--fd-step-num);
 }
 
 .fd-how {
@@ -637,7 +733,7 @@ code {
   font-size: 0.8rem;
 }
 .fd-footer a:hover {
-  color: #fff;
+  color: var(--fd-ink);
 }
 
 /* ---- Motion -------------------------------------------------------------- */
