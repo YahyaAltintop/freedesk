@@ -22,6 +22,17 @@ func TestWebOriginsIncludeProjectSiteAndExtras(t *testing.T) {
 	}
 }
 
+func TestSiteURLPrefersHostingSite(t *testing.T) {
+	cfg := &Config{ProjectID: "my-project", HostingSite: " free-desk "}
+	if got, want := cfg.SiteURL(), "https://free-desk.web.app"; got != want {
+		t.Fatalf("SiteURL with site: got %q want %q", got, want)
+	}
+	cfg.HostingSite = ""
+	if got, want := cfg.SiteURL(), "https://my-project.web.app"; got != want {
+		t.Fatalf("SiteURL without site: got %q want %q", got, want)
+	}
+}
+
 func TestWebOriginsSkipSiteEqualToProject(t *testing.T) {
 	got := webOrigins("my-project", "my-project", "")
 	want := []string{

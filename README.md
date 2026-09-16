@@ -2,6 +2,8 @@
 
 A small, free remote desktop: see and control another Windows PC from your browser. No accounts, no passwords, no server to run. One person starts a tiny program, reads a 9-digit code, the other person types it into the web page, and the first person clicks **Yes**.
 
+**Web page:** https://free-desk.web.app — connect from any browser, or download the Windows host program from the same page.
+
 - **Viewer:** a web page (Vue 3) — shows the remote screen and sends mouse/keyboard.
 - **Host:** `freedesk-host.exe` (Go + Pion WebRTC) — runs on the PC being controlled, captures the screen with ffmpeg and applies input.
 - **Firebase:** anonymous identity + a Realtime Database used only to find each other and exchange the WebRTC handshake. **Screen and input never pass through Firebase**; they travel directly between the two computers over an encrypted WebRTC connection.
@@ -11,14 +13,14 @@ A small, free remote desktop: see and control another Windows PC from your brows
 ## Using it
 
 ### On the computer that will be controlled
-1. Download `freedesk-host-windows-x64.zip` from this repository's **Releases** page and unzip it anywhere.
+1. Press **Download for Windows** on the web page (or take `freedesk-host-windows-x64.zip` from this repository's **Releases** page) and unzip it anywhere.
 2. Run `freedesk-host.exe`. A console window shows **THIS COMPUTER'S CODE** (for example `738 986 982`). If Windows asks about network access, allow it.
 3. Give the code to the person who should connect.
 4. When they connect, a window pops up: **Allow them to see your screen and control this computer?** Click **Yes**. If you do not answer within 45 seconds the request is rejected.
 5. Close the console window (or press Ctrl+C) to stop. The code stops working immediately; the next start gets a new code.
 
 ### On the computer that connects
-1. Open the FreeDesk web page (the address is shown on the Releases page / by whoever deployed it; when you run your own copy it is `https://<your-project>.web.app`).
+1. Open the FreeDesk web page: https://free-desk.web.app (when you run your own copy it is `https://<your-site>.web.app`).
 2. Type the 9-digit code and press **Connect**.
 3. Wait for the other person to click Yes. The remote screen appears; click it to control. **End Session** disconnects.
 
@@ -62,7 +64,7 @@ You need a free Firebase project (Spark plan is enough for personal use).
 1. **Firebase:** create a project, enable the *Anonymous* sign-in provider, create a Realtime Database, deploy the rules. Step by step: [firebase/README.md](firebase/README.md).
 2. **Viewer:** `cd frontend && npm install && cp .env.example .env` (fill in the web config from the Firebase console) `&& npm run dev` — or deploy it with `npm run build && cd ../firebase && firebase deploy --only hosting`. Details: [frontend/README.md](frontend/README.md).
 3. **Host agent:** `cd host-agent && cp .env.example .env` (API key, project id, database URL) `&& go run ./cmd/host`. ffmpeg must be next to the executable or on the PATH. Details: [host-agent/README.md](host-agent/README.md).
-4. **Releases from GitHub Actions:** set the repository *variables* `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`, `FIREBASE_DATABASE_URL` and the *secret* `FIREBASE_SERVICE_ACCOUNT` (a service-account JSON key with Hosting + Realtime Database admin roles). Then:
+4. **Releases from GitHub Actions:** set the repository *variables* `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`, `FIREBASE_DATABASE_URL` and the *secret* `FIREBASE_SERVICE_ACCOUNT` (a service-account JSON key with Hosting + Realtime Database admin roles). The home page's Download button links to the Releases of the repository that built it (`VITE_GITHUB_REPO`, set automatically by the workflows). Then:
    - pushing to `main` deploys the rules and the viewer to Firebase Hosting (`.github/workflows/deploy-web.yml`);
    - pushing a tag `vX.Y.Z` builds `freedesk-host.exe` with your project embedded, bundles the official ffmpeg build and publishes the zip on the release (`.github/workflows/release.yml`).
 

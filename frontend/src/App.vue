@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import AppNavbar from '@/components/AppNavbar.vue'
+import AppFooter from '@/components/AppFooter.vue'
 import FirebaseConfigAlert from '@/components/FirebaseConfigAlert.vue'
 import { RouteName } from '@/constants/routes'
 
@@ -17,8 +18,9 @@ const showChrome = computed(() => route.name !== RouteName.Connect)
       <AppNavbar />
       <FirebaseConfigAlert />
     </template>
-    <main class="flex-grow-1">
+    <main class="flex-grow-1 d-flex flex-column">
       <RouterView />
     </main>
+    <AppFooter v-if="showChrome" />
   </div>
 </template>

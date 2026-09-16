@@ -143,6 +143,17 @@ func webOrigins(projectID, hostingSite, extra string) []string {
 	return origins
 }
 
+// SiteURL is the address of the deployed viewer: the Hosting site when one is
+// configured, otherwise the project's default site. Shown in the console
+// banner so the person sharing the code knows where the other side should go.
+func (c *Config) SiteURL() string {
+	site := strings.TrimSpace(c.HostingSite)
+	if site == "" {
+		site = c.ProjectID
+	}
+	return "https://" + site + ".web.app"
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if v != "" {

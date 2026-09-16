@@ -83,7 +83,8 @@ func run() error {
 
 	log.Println("[host-agent] ==========================================")
 	log.Printf("[host-agent]   THIS COMPUTER'S CODE: %s", formatPairingCode(code))
-	log.Println("[host-agent]   The person connecting enters this code in the web UI;")
+	log.Printf("[host-agent]   Web page:             %s", cfg.SiteURL())
+	log.Println("[host-agent]   The person connecting opens the web page and enters this code;")
 	log.Println("[host-agent]   every request is approved on this computer.")
 	log.Println("[host-agent]   The code changes every time the agent starts.")
 	log.Println("[host-agent] ==========================================")

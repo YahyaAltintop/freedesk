@@ -20,6 +20,9 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_DATABASE_URL: string
   // Optional dev switch: '1' routes Auth + Realtime Database to the local emulators.
   readonly VITE_USE_EMULATORS?: string
+  // Optional "owner/repo" whose GitHub Releases hold the host agent zip the
+  // home page links to (defaults to the upstream repository).
+  readonly VITE_GITHUB_REPO?: string
 }
 
 interface ImportMeta {

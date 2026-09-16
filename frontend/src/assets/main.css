@@ -1,40 +1,365 @@
+/* FreeDesk viewer: design tokens and the landing-page styles. Bootstrap 5
+   provides the grid, buttons, forms and utilities; everything here is the
+   visual layer on top of it. The connection page keeps its own dark look. */
+
 :root {
-  --rc-bg: #f5f7fb;
+  --fd-bg: #f4f6fb;
+  --fd-surface: #ffffff;
+  --fd-ink: #0f172a;
+  --fd-muted: #64748b;
+  --fd-border: #e2e8f0;
+  --fd-accent: #2563eb;
+  --fd-accent-strong: #1d4ed8;
+  --fd-accent-soft: #dbeafe;
+  --fd-radius: 1rem;
+  --fd-shadow: 0 12px 32px -16px rgba(15, 23, 42, 0.28);
+  --fd-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* Bootstrap hooks */
+  --bs-body-bg: var(--fd-bg);
+  --bs-body-color: var(--fd-ink);
+  --bs-link-color-rgb: 37, 99, 235;
+  --bs-link-hover-color-rgb: 29, 78, 216;
 }
 
 body {
-  background-color: var(--rc-bg);
+  background-color: var(--fd-bg);
+  -webkit-font-smoothing: antialiased;
 }
 
 .app-shell {
-  background-color: var(--rc-bg);
+  background-color: var(--fd-bg);
 }
 
-/* Host cards lift slightly on hover for a tactile feel. */
-.host-card {
-  transition:
-    box-shadow 0.15s ease,
-    transform 0.15s ease;
-}
-.host-card:hover {
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
+/* Anchor targets sit below the sticky header. */
+[id] {
+  scroll-margin-top: 5rem;
 }
 
-/* Full-screen sign-in backdrop. */
-.login-wrapper {
-  min-height: 100vh;
-  display: flex;
+.btn-primary {
+  --bs-btn-bg: var(--fd-accent);
+  --bs-btn-border-color: var(--fd-accent);
+  --bs-btn-hover-bg: var(--fd-accent-strong);
+  --bs-btn-hover-border-color: var(--fd-accent-strong);
+  --bs-btn-active-bg: #1e40af;
+  --bs-btn-active-border-color: #1e40af;
+  --bs-btn-disabled-bg: #93c5fd;
+  --bs-btn-disabled-border-color: #93c5fd;
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--fd-accent);
+  --bs-btn-border-color: var(--fd-accent);
+  --bs-btn-hover-bg: var(--fd-accent);
+  --bs-btn-hover-border-color: var(--fd-accent);
+  --bs-btn-active-bg: var(--fd-accent-strong);
+  --bs-btn-active-border-color: var(--fd-accent-strong);
+}
+
+.btn {
+  --bs-btn-border-radius: 0.6rem;
+  --bs-btn-font-weight: 600;
+}
+
+.fd-icon {
+  flex-shrink: 0;
+}
+
+/* ---- Header ------------------------------------------------------------- */
+
+.fd-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1020;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--fd-border);
+}
+
+.fd-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--fd-ink);
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+.fd-brand:hover {
+  color: var(--fd-ink);
+}
+
+.fd-brand-mark {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
-  padding: 1.5rem;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #fff;
 }
-.login-card {
-  width: 100%;
-  max-width: 420px;
+
+.fd-nav-link {
+  --bs-btn-color: var(--fd-muted);
+  --bs-btn-hover-color: var(--fd-ink);
+  text-decoration: none;
+}
+
+/* ---- Hero --------------------------------------------------------------- */
+
+.fd-hero {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  background:
+    radial-gradient(70rem 32rem at 85% -20%, rgba(124, 58, 237, 0.45), transparent 60%),
+    radial-gradient(45rem 24rem at -10% 110%, rgba(37, 99, 235, 0.5), transparent 60%),
+    linear-gradient(160deg, #0b1220 0%, #101c3f 55%, #1d3a8a 100%);
+}
+.fd-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent);
+}
+/* Vertical padding only: these sit on Bootstrap's .container, whose horizontal
+   padding must survive or the rows' negative gutters overflow the viewport. */
+.fd-hero-inner {
+  position: relative;
+  z-index: 1;
+  padding-top: 4.5rem;
+  padding-bottom: 4rem;
+}
+@media (max-width: 991.98px) {
+  .fd-hero-inner {
+    padding-top: 3rem;
+    padding-bottom: 2.5rem;
+  }
+}
+
+.fd-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fd-hero h1 {
+  font-size: clamp(2.1rem, 4.5vw, 3.25rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.fd-hero .lead {
+  color: rgba(255, 255, 255, 0.78);
+  max-width: 34rem;
+}
+
+.fd-hero .btn-outline-light {
+  --bs-btn-border-color: rgba(255, 255, 255, 0.45);
+}
+
+.fd-hero-trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.875rem;
+}
+.fd-hero-trust span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* ---- Cards -------------------------------------------------------------- */
+
+.fd-card {
+  background: var(--fd-surface);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+  box-shadow: var(--fd-shadow);
+  padding: 1.5rem;
+  color: var(--fd-ink);
+}
+
+.fd-card-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.fd-icon-badge {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--fd-accent-soft);
+  color: var(--fd-accent);
+}
+.fd-icon-badge.is-success {
+  background: #dcfce7;
+  color: #15803d;
+}
+.fd-icon-badge.is-violet {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+/* ---- Code entry / display ---------------------------------------------- */
+
+.fd-code-input {
+  font-family: var(--fd-mono);
+  font-size: 1.75rem;
+  letter-spacing: 0.12em;
+  text-align: center;
+  padding: 0.7rem 1rem;
+  border-radius: 0.75rem;
+}
+.fd-code-input::placeholder {
+  color: #cbd5e1;
+  letter-spacing: 0.12em;
+}
+
+.fd-code {
+  font-family: var(--fd-mono);
+  font-size: clamp(2rem, 6vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  color: var(--fd-ink);
+}
+
+/* ---- Numbered steps ----------------------------------------------------- */
+
+.fd-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  counter-reset: step;
+  display: grid;
+  gap: 0.85rem;
+}
+.fd-steps > li {
+  display: grid;
+  grid-template-columns: 1.75rem 1fr;
+  gap: 0.75rem;
+  align-items: start;
+  counter-increment: step;
+  font-size: 0.95rem;
+}
+.fd-steps > li::before {
+  content: counter(step);
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--fd-accent-soft);
+  color: var(--fd-accent-strong);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.fd-how {
+  display: grid;
+  gap: 1.25rem;
+}
+.fd-how-step {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  gap: 0.9rem;
+}
+.fd-how-step p {
+  margin: 0.15rem 0 0;
+  color: var(--fd-muted);
+  font-size: 0.925rem;
+}
+.fd-how-num {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* ---- Feature tiles ------------------------------------------------------ */
+
+.fd-section {
+  padding-top: 3rem;
+  padding-bottom: 1rem;
+}
+
+.fd-feature {
+  height: 100%;
+  padding: 1.25rem;
+  border-radius: var(--fd-radius);
+  background: var(--fd-surface);
+  border: 1px solid var(--fd-border);
+}
+.fd-feature h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0.85rem 0 0.35rem;
+}
+.fd-feature p {
+  margin: 0;
+  color: var(--fd-muted);
+  font-size: 0.9rem;
+}
+
+/* ---- Download button ---------------------------------------------------- */
+
+.fd-download {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.fd-download-meta {
+  color: var(--fd-muted);
+}
+.fd-hero .fd-download-meta {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* ---- Footer ------------------------------------------------------------- */
+
+.fd-footer {
+  border-top: 1px solid var(--fd-border);
+  background: #fff;
+  color: var(--fd-muted);
+}
+.fd-footer a {
+  color: var(--fd-ink);
+  text-decoration: none;
+}
+.fd-footer a:hover {
+  text-decoration: underline;
 }
 
 .monospace {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--fd-mono);
 }
