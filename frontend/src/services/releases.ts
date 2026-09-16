@@ -1,15 +1,9 @@
 // Looks up the latest GitHub release so the download button can show the
-// version and size and link straight to the zip. Everything degrades to the
-// generic ".../releases/latest/download/<asset>" link when the API is
-// unreachable, and to the Releases page when no release exists yet.
+// version and size and link straight to the zip. When the API is unreachable
+// or no release exists yet, the button falls back to the Releases page.
 
 import { ref, type Ref } from 'vue'
-import {
-  HOST_ASSET_NAME,
-  LATEST_HOST_ASSET_URL,
-  LATEST_RELEASE_API_URL,
-  RELEASES_URL,
-} from '@/constants/links'
+import { HOST_ASSET_NAME, LATEST_RELEASE_API_URL, RELEASES_URL } from '@/constants/links'
 
 export interface HostRelease {
   /** Tag name without the leading "v". */
@@ -126,5 +120,3 @@ export function useLatestRelease(): Ref<ReleaseLookup | null> {
   }
   return latest
 }
-
-export { LATEST_HOST_ASSET_URL }

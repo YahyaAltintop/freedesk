@@ -54,6 +54,8 @@ cd ../firebase && firebase deploy --only hosting
 
 The site is then served at `https://free-desk.web.app` (the `hosting.site` id in `firebase.json`; without one, the project id is the site id). The host agent only answers `/identity` requests from the project's and the site's `web.app` / `firebaseapp.com` origins (plus the local dev server); the release workflow reads the site id from `firebase.json`, and when running from source set `RC_HOSTING_SITE` in `host-agent/.env`.
 
+> **API key website restrictions.** If the Web API key is limited to certain websites (Google Cloud Console → APIs & Services → Credentials → *Browser key (auto created by Firebase)* → Website restrictions), the site must be on the list: add `https://free-desk.web.app/*` and `https://free-desk.firebaseapp.com/*` (and `http://localhost:9205/*` for development). Otherwise the viewer fails at start-up with `auth/requests-from-referer-...-are-blocked`. Adding the site under Authentication → Settings → Authorized domains is harmless and recommended too.
+
 ## 5. Local Verification (Emulator)
 
 To verify the rules offline, without touching the real project (needs a JDK ≥ 21 on the PATH):

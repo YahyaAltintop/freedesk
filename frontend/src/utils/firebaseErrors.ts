@@ -23,9 +23,20 @@ function isRtdbPermissionDenied(error: Error): boolean {
   return /^permission[_ ]denied/i.test(error.message)
 }
 
+// The Web API key can be limited to certain websites (Google Cloud Console →
+// APIs & Services → Credentials → "Website restrictions"). A deployment on a
+// site missing from that list fails with a code that embeds the referrer,
+// e.g. "auth/requests-from-referer-https://free-desk.web.app/-are-blocked".
+function isRefererBlocked(code: string): boolean {
+  return code.startsWith('auth/requests-from-referer-')
+}
+
 // Converts any thrown value into a user-facing English message.
 export function toFriendlyError(error: unknown): string {
   if (error instanceof FirebaseError) {
+    if (isRefererBlocked(error.code)) {
+      return `This site (${window.location.origin}) is blocked by the Firebase API key's website restrictions. Allow it in Google Cloud Console → APIs & Services → Credentials → the browser key.`
+    }
     return messages[error.code] ?? `An error occurred (${error.code}).`
   }
   if (error instanceof Error) {

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
-import { LATEST_HOST_ASSET_URL, RELEASES_URL } from '@/constants/links'
+import { RELEASES_URL } from '@/constants/links'
 import { useLatestRelease } from '@/services/releases'
 
-// Links to the Windows host agent zip. Shows version and size once the GitHub
-// release lookup has answered; works (via the generic "latest" link) before
-// and without it.
+// Links to the Windows host agent zip once the GitHub release lookup has
+// confirmed one (with version and size). Before that, when the lookup fails
+// or when no release exists, it links to the Releases page, which never 404s.
 const props = withDefaults(defineProps<{ compact?: boolean; variant?: 'primary' | 'ghost' }>(), {
   compact: false,
   variant: 'primary',
@@ -16,13 +16,7 @@ const lookup = useLatestRelease()
 
 const href = computed(() => {
   const current = lookup.value
-  if (current?.state === 'found') {
-    return current.release.downloadUrl
-  }
-  if (current?.state === 'none') {
-    return RELEASES_URL
-  }
-  return LATEST_HOST_ASSET_URL
+  return current?.state === 'found' ? current.release.downloadUrl : RELEASES_URL
 })
 
 const label = computed(() => {
