@@ -19,8 +19,8 @@ import { ARCHITECTURE_DOC_URL, GITHUB_URL, LICENSE_URL, RELEASES_URL } from '@/c
       </nav>
     </div>
     <div class="container small pb-4">
-      Use it only on computers you own or are explicitly authorised to control. Every connection
-      needs a person at the host to click Yes.
+      Only for computers you own or are allowed to control. Every connection needs a Yes on the
+      host.
     </div>
   </footer>
 </template>

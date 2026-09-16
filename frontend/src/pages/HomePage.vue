@@ -162,22 +162,22 @@ const features: Feature[] = [
   {
     icon: 'user',
     title: 'No account',
-    text: 'No sign-up and no password. The code is the whole handshake, and it changes every time the host starts.',
+    text: 'No sign-up, no password. The code is the key.',
   },
   {
     icon: 'zap',
     title: 'Direct connection',
-    text: 'Screen and input travel straight between the two computers over encrypted WebRTC, never through a server.',
+    text: 'Peer to peer over encrypted WebRTC. No server in between.',
   },
   {
     icon: 'eye-off',
     title: 'Nothing stored',
-    text: 'The only records are the temporary code and the connection handshake, deleted the moment the session ends.',
+    text: 'A temporary code, a temporary handshake. Gone when the session ends.',
   },
   {
     icon: 'code',
     title: 'Open source',
-    text: 'MIT licensed. Read the code, build it yourself, or host your own copy on a free Firebase project.',
+    text: 'MIT licensed. Read it, build it, host your own.',
   },
 ]
 </script>
@@ -194,17 +194,15 @@ const features: Feature[] = [
             <span class="fd-gradient-text">as simple as a code.</span>
           </h1>
           <p class="fd-lead fd-rise" style="--d: 2">
-            See and control another Windows PC straight from your browser. One side runs a small
-            program and reads out a 9-digit code; the other types it in here. Nothing to install,
-            nothing to sign up for, nothing stored.
+            Control a Windows PC from your browser. Share a 9-digit code, click Yes, done.
           </p>
           <div class="d-flex flex-wrap align-items-start gap-3 mb-4 fd-rise" style="--d: 3">
             <DownloadButton />
             <a class="btn btn-fd-ghost btn-lg" href="#how">How it works</a>
           </div>
           <ul class="fd-trust fd-rise" style="--d: 4">
-            <li><AppIcon name="shield" :size="15" /> encrypted, direct connection</li>
-            <li><AppIcon name="thumbs-up" :size="15" /> host approves every session</li>
+            <li><AppIcon name="shield" :size="15" /> peer to peer, encrypted</li>
+            <li><AppIcon name="eye-off" :size="15" /> nothing stored</li>
             <li><AppIcon name="code" :size="15" /> MIT licensed</li>
           </ul>
         </div>
@@ -215,7 +213,7 @@ const features: Feature[] = [
               <span class="fd-icon-badge"><AppIcon name="monitor" /></span>
               <div>
                 <h2 class="fd-card-title">Connect to a computer</h2>
-                <p class="fd-card-sub">Enter the 9-digit code shown on the other computer.</p>
+                <p class="fd-card-sub">Type the code from the other PC.</p>
               </div>
             </div>
 
@@ -250,10 +248,7 @@ const features: Feature[] = [
               {{ connectError }}
             </div>
 
-            <p class="fd-hint mt-3 mb-0">
-              The person at the other computer has to click <strong>Yes</strong> before you see
-              anything.
-            </p>
+            <p class="fd-hint mt-3 mb-0">The other side clicks <strong>Yes</strong>. Then you're in.</p>
           </div>
         </div>
       </div>
@@ -272,7 +267,7 @@ const features: Feature[] = [
               </span>
               <div>
                 <h2 class="fd-card-title">Share this computer</h2>
-                <p class="fd-card-sub">Let someone see and control this PC.</p>
+                <p class="fd-card-sub">Let someone control this PC.</p>
               </div>
             </div>
             <span v-if="identityChecked" class="fd-status" :class="identity ? 'is-on' : 'is-off'">
@@ -291,7 +286,7 @@ const features: Feature[] = [
             </div>
             <div class="fd-term-body">
               <div v-if="!identityChecked">
-                <span class="fd-term-k">$</span> looking for the host agent on this computer
+                <span class="fd-term-k">$</span> looking for the host agent
                 <span class="fd-cursor"></span>
               </div>
               <template v-else-if="identity">
@@ -308,18 +303,15 @@ const features: Feature[] = [
               </template>
               <template v-else>
                 <div><span class="fd-term-k">$</span> freedesk-host.exe</div>
-                <div class="fd-term-dim">
-                  waiting for the program to start on this computer <span class="fd-cursor"></span>
-                </div>
+                <div class="fd-term-dim">waiting for the program to start <span class="fd-cursor"></span></div>
               </template>
             </div>
           </div>
 
           <template v-if="identity">
             <p class="fd-hint">
-              Give this code to the person who should connect. You will be asked to click
-              <strong>Yes</strong> before they see anything, and the code changes every time the
-              agent starts.
+              Share this code. You click <strong>Yes</strong> on every connection. New code on
+              every start.
             </p>
             <div class="mt-auto">
               <button
@@ -336,19 +328,16 @@ const features: Feature[] = [
           <template v-else-if="identityChecked">
             <ol class="fd-steps mb-4">
               <li>
-                <span><strong>Download</strong> the zip and unpack it anywhere.</span>
+                <span><strong>Download</strong> the zip. Unpack it anywhere.</span>
               </li>
               <li>
                 <span>
-                  <strong>Run <code>freedesk-host.exe</code></strong> — no installation. If Windows
-                  asks about network access, allow it.
+                  <strong>Run <code>freedesk-host.exe</code>.</strong> No install. Allow network
+                  access if asked.
                 </span>
               </li>
               <li>
-                <span>
-                  <strong>Tell the code</strong> that appears here (and in the program's window) to
-                  the person who should connect.
-                </span>
+                <span><strong>Share the code</strong> it shows.</span>
               </li>
             </ol>
             <div class="d-flex flex-wrap align-items-start gap-3 mt-auto">
@@ -362,14 +351,9 @@ const features: Feature[] = [
               </button>
             </div>
             <p class="fd-hint mt-3 mb-0">
-              <template v-if="isWindows">
-                This page re-checks by itself once the program is running.
-              </template>
-              <template v-else>
-                The host program runs on Windows 10/11; from this device you can still connect to a
-                Windows PC.
-              </template>
-              You don't need it if you only want to connect to someone else.
+              <template v-if="isWindows">This page updates by itself once it runs.</template>
+              <template v-else>The host runs on Windows 10/11. Connecting works from anywhere.</template>
+              Only connecting out? You don't need it.
             </p>
           </template>
         </div>
@@ -381,7 +365,7 @@ const features: Feature[] = [
             <span class="fd-icon-badge is-pink"><AppIcon name="mouse-pointer" /></span>
             <div>
               <h2 class="fd-card-title">How it works</h2>
-              <p class="fd-card-sub">Three steps, about a minute.</p>
+              <p class="fd-card-sub">Three steps. One minute.</p>
             </div>
           </div>
           <div class="fd-how">
@@ -389,28 +373,21 @@ const features: Feature[] = [
               <span class="fd-how-num">01</span>
               <div>
                 <strong>Run the host program</strong>
-                <p>
-                  On the computer to be controlled, run <code>freedesk-host.exe</code>. It shows a
-                  9-digit code.
-                </p>
+                <p>On the PC to share. It shows a 9-digit code.</p>
               </div>
             </div>
             <div class="fd-how-step">
               <span class="fd-how-num">02</span>
               <div>
                 <strong>Enter the code</strong>
-                <p>On any other computer, open this page, type the code and press Connect.</p>
+                <p>Open this page anywhere. Type it. Connect.</p>
               </div>
             </div>
             <div class="fd-how-step">
               <span class="fd-how-num">03</span>
               <div>
                 <strong>Click Yes on the host</strong>
-                <p>
-                  A window pops up on the shared computer. After Yes, its screen appears in your
-                  browser and your mouse and keyboard control it. End the session or close the
-                  program at any time.
-                </p>
+                <p>A window pops up there. Yes, and the screen is yours.</p>
               </div>
             </div>
           </div>
@@ -435,9 +412,9 @@ const features: Feature[] = [
       </div>
     </div>
     <p class="fd-hint mt-4 mb-0">
-      Windows 10/11 hosts, primary monitor only, no audio or file transfer, and some networks
-      (mobile data, CGNAT) cannot connect directly.
-      <a :href="GITHUB_URL" target="_blank" rel="noopener">Full details and source on GitHub.</a>
+      Windows 10/11 hosts · primary monitor · no audio or files · some networks (CGNAT) can't
+      connect directly.
+      <a :href="GITHUB_URL" target="_blank" rel="noopener">Details on GitHub.</a>
     </p>
   </section>
 </template>
