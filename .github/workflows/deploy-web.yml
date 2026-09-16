@@ -1,14 +1,16 @@
 name: Deploy web
 
-# Publishes the viewer to Firebase Hosting and the database rules on every push
-# to main that touches them (or manually from the Actions tab).
+# Publishes the viewer to Firebase Hosting on every push to main that touches
+# it (or manually from the Actions tab). The database rules are NOT deployed
+# here: deploy them once by hand (`firebase deploy --only database` in
+# firebase/) and again whenever database.rules.json changes.
 #
 # Required repository VARIABLES: FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN,
 #   FIREBASE_PROJECT_ID, FIREBASE_APP_ID, FIREBASE_DATABASE_URL
 # Required repository SECRET: FIREBASE_SERVICE_ACCOUNT — the JSON key of a
-#   service account with the "Firebase Hosting Admin" and "Firebase Realtime
-#   Database Admin" roles (Firebase console → Project settings → Service accounts).
-#   It is used ONLY here, by CI, never shipped anywhere.
+#   service account with the "Firebase Hosting Admin" role (Firebase console →
+#   Project settings → Service accounts → Generate new private key). It is used
+#   ONLY here, by CI, never shipped anywhere.
 
 on:
   push:
@@ -43,16 +45,6 @@ jobs:
         run: |
           npm ci
           npm run build
-
-      - name: Deploy database rules
-        working-directory: firebase
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: |
-          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/service-account.json"
-          npx --yes firebase-tools@latest deploy --only database --project "${{ vars.FIREBASE_PROJECT_ID }}" --non-interactive
-          rm -f "$RUNNER_TEMP/service-account.json"
 
       - name: Deploy hosting
         uses: FirebaseExtended/action-hosting-deploy@v0

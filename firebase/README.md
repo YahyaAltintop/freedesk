@@ -42,6 +42,8 @@ firebase deploy --only database
 ```
 
 > On the first `database` deploy, the CLI may ask for the target database instance; pick the default instance.
+>
+> CI does not deploy the rules (only the viewer, see `.github/workflows/deploy-web.yml`): run this command once when setting the project up and again whenever `database.rules.json` changes.
 
 ## 4. Deploying the Viewer
 
