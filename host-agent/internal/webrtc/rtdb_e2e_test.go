@@ -10,9 +10,9 @@ import (
 
 	pion "github.com/pion/webrtc/v4"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/auth"
-	"github.com/yahya/remote-control-app/host-agent/internal/firebase"
-	"github.com/yahya/remote-control-app/host-agent/internal/signaling"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/auth"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
 )
 
 // TestConnectOverRTDBEmulator runs the full host↔viewer negotiation through the

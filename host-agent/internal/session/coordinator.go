@@ -9,11 +9,11 @@ import (
 	pion "github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/capture"
-	"github.com/yahya/remote-control-app/host-agent/internal/firebase"
-	"github.com/yahya/remote-control-app/host-agent/internal/input"
-	"github.com/yahya/remote-control-app/host-agent/internal/signaling"
-	"github.com/yahya/remote-control-app/host-agent/internal/webrtc"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/capture"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/input"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/webrtc"
 )
 
 const (

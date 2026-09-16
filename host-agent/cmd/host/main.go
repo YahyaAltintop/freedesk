@@ -19,15 +19,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/auth"
-	"github.com/yahya/remote-control-app/host-agent/internal/capture"
-	"github.com/yahya/remote-control-app/host-agent/internal/config"
-	"github.com/yahya/remote-control-app/host-agent/internal/consent"
-	"github.com/yahya/remote-control-app/host-agent/internal/firebase"
-	"github.com/yahya/remote-control-app/host-agent/internal/host"
-	"github.com/yahya/remote-control-app/host-agent/internal/localapi"
-	"github.com/yahya/remote-control-app/host-agent/internal/session"
-	"github.com/yahya/remote-control-app/host-agent/internal/webrtc"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/auth"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/capture"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/config"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/consent"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/host"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/localapi"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/session"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/webrtc"
 )
 
 // appVersion is overwritten by the release build (-ldflags "-X main.appVersion=…").

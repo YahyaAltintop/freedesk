@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 )
 
 const (

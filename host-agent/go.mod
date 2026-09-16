@@ -1,4 +1,4 @@
-module github.com/yahya/remote-control-app/host-agent
+module github.com/YahyaAltintop/freedesk/host-agent
 
 go 1.24.0
 

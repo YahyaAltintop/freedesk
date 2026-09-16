@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 )
 
 func ev(kind, path, data string) firebase.StreamEvent {

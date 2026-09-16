@@ -8,7 +8,7 @@ import (
 
 	pion "github.com/pion/webrtc/v4"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/signaling"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
 )
 
 // memTransport is an in-memory signaling.Transport that connects two peers in

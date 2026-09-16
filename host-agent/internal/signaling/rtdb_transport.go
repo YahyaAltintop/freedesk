@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 )
 
 // ErrSessionGone is returned when the session node disappears (the viewer

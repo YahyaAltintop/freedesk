@@ -8,7 +8,7 @@ import (
 	"github.com/pion/interceptor"
 	pion "github.com/pion/webrtc/v4"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/signaling"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
 )
 
 // inputChannelLabel is the DataChannel that carries mouse/keyboard input

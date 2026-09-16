@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/auth"
-	"github.com/yahya/remote-control-app/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/auth"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 )
 
 // TestRTDBRulesEmulator exercises the security model against the Realtime

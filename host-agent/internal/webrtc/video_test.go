@@ -9,7 +9,7 @@ import (
 	pion "github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 
-	"github.com/yahya/remote-control-app/host-agent/internal/signaling"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
 )
 
 // TestConnectWithVideoTrack verifies that a video track added on the host is
