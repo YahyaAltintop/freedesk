@@ -1,8 +1,12 @@
 # Normalize line endings: store as LF in the repo, check out native per OS.
 * text=auto
 
-# Explicit text types
-*.go      text
+# Explicit text types. Go sources are always checked out with LF: gofmt treats
+# CRLF as a formatting difference, which broke the Windows CI job when the
+# runner's autocrlf converted them.
+*.go      text eol=lf
+go.mod    text eol=lf
+go.sum    text eol=lf
 *.ts      text
 *.vue     text
 *.js      text

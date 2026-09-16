@@ -37,7 +37,8 @@ Release builds have the Firebase values embedded (`-ldflags -X`, see `.github/wo
 | `RC_FFMPEG_PATH` | ffmpeg executable (default: `ffmpeg.exe` next to the agent, else PATH) |
 | `RC_APPROVAL` | `dialog` (default on Windows) or `console` (`y` + Enter; used by tests and headless runs) |
 | `RC_LOCAL_PORT` | Loopback port for the code endpoint (default 47800; must match the viewer) |
-| `RC_WEB_ORIGINS` | Extra browser origins allowed to read the code, comma separated (the project's `web.app`/`firebaseapp.com` origins and `localhost:9205` are always allowed) |
+| `RC_HOSTING_SITE` | Firebase Hosting site id when it differs from the project id (`firebase.json` → `hosting.site`); release builds read it from `firebase.json` automatically |
+| `RC_WEB_ORIGINS` | Extra browser origins allowed to read the code, comma separated (the project's and the site's `web.app`/`firebaseapp.com` origins and `localhost:9205` are always allowed) |
 | `FIREBASE_AUTH_EMULATOR_HOST`, `FIREBASE_DATABASE_EMULATOR_HOST` | Point the agent at the Firebase emulators |
 
 ## Build & run

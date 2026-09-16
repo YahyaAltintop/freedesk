@@ -56,11 +56,17 @@ jobs:
           $version = "${{ github.ref_name }}".TrimStart("v")
           $module = (go list -m)
           $cfg = "$module/internal/config"
+          # A Hosting site named differently from the project (firebase.json
+          # "hosting.site") must be allowed to read the code from the agent.
+          $site = (Get-Content ../firebase/firebase.json -Raw | ConvertFrom-Json).hosting.site
+          if (-not $site) { $site = "" }
           $ldflags = "-s -w " +
             "-X main.appVersion=$version " +
             "-X $cfg.BuildAPIKey=$env:FIREBASE_API_KEY " +
             "-X $cfg.BuildProjectID=$env:FIREBASE_PROJECT_ID " +
-            "-X $cfg.BuildDatabaseURL=$env:FIREBASE_DATABASE_URL"
+            "-X $cfg.BuildDatabaseURL=$env:FIREBASE_DATABASE_URL " +
+            "-X $cfg.BuildHostingSite=$site"
+          "hosting site: '$site'"
           New-Item -ItemType Directory -Force ../dist | Out-Null
           go build -trimpath -ldflags $ldflags -o ../dist/freedesk-host.exe ./cmd/host
           Get-Item ../dist/freedesk-host.exe | Format-Table Name, Length

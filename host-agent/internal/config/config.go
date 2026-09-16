@@ -22,6 +22,10 @@ var (
 	BuildAPIKey      string
 	BuildProjectID   string
 	BuildDatabaseURL string
+	// BuildHostingSite is the Firebase Hosting site id when it differs from
+	// the project id (firebase.json "hosting.site"); it adds the site's
+	// web.app / firebaseapp.com origins to the loopback allow-list.
+	BuildHostingSite string
 )
 
 // Config holds all runtime configuration for the host agent.
@@ -35,6 +39,7 @@ type Config struct {
 	LocalAPIPort int    // loopback port serving the pairing code to the local web UI
 	FFmpegPath   string // ffmpeg executable for screen capture (empty = next to the exe, else PATH)
 	ApprovalMode string // "dialog" (Windows default) or "console"
+	HostingSite  string // Firebase Hosting site id if it differs from the project id
 
 	// WebOrigins are the browser origins allowed to read the pairing code from
 	// the loopback endpoint: the deployed web app plus the local dev server.
@@ -75,6 +80,7 @@ func Load(envFilePath string) (*Config, error) {
 		HostName:          os.Getenv("RC_HOST_NAME"),
 		FFmpegPath:        os.Getenv("RC_FFMPEG_PATH"),
 		ApprovalMode:      strings.ToLower(strings.TrimSpace(os.Getenv("RC_APPROVAL"))),
+		HostingSite:       firstNonEmpty(os.Getenv("RC_HOSTING_SITE"), BuildHostingSite),
 		LocalAPIPort:      defaultLocalAPIPort,
 		HeartbeatInterval: defaultHeartbeatInterval,
 		AuthBaseURL:       defaultAuthBaseURL,
@@ -109,19 +115,26 @@ func Load(envFilePath string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	cfg.WebOrigins = webOrigins(cfg.ProjectID, os.Getenv("RC_WEB_ORIGINS"))
+	cfg.WebOrigins = webOrigins(cfg.ProjectID, cfg.HostingSite, os.Getenv("RC_WEB_ORIGINS"))
 	return cfg, nil
 }
 
-// webOrigins lists the Firebase Hosting origins of this project plus the Vite
-// dev server, extended by the comma-separated RC_WEB_ORIGINS.
-func webOrigins(projectID, extra string) []string {
+// webOrigins lists the Firebase Hosting origins of this project (the default
+// site named after the project id, plus a differently named site if one is
+// configured) and the Vite dev server, extended by the comma-separated
+// RC_WEB_ORIGINS.
+func webOrigins(projectID, hostingSite, extra string) []string {
 	origins := []string{
 		"https://" + projectID + ".web.app",
 		"https://" + projectID + ".firebaseapp.com",
-		"http://localhost:9205",
-		"http://127.0.0.1:9205",
 	}
+	if site := strings.TrimSpace(hostingSite); site != "" && site != projectID {
+		origins = append(origins,
+			"https://"+site+".web.app",
+			"https://"+site+".firebaseapp.com",
+		)
+	}
+	origins = append(origins, "http://localhost:9205", "http://127.0.0.1:9205")
 	for o := range strings.SplitSeq(extra, ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			origins = append(origins, strings.TrimRight(o, "/"))

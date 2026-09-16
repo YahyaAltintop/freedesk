@@ -13,6 +13,10 @@ jobs:
       run:
         working-directory: host-agent
     steps:
+      # The Windows runner converts text files to CRLF on checkout, and gofmt
+      # reports every CRLF file as unformatted. .gitattributes pins Go files
+      # to LF; this keeps the rest of the tree byte-identical as well.
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:

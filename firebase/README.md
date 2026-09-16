@@ -50,7 +50,7 @@ cd frontend && npm run build      # writes ../firebase/public
 cd ../firebase && firebase deploy --only hosting
 ```
 
-The site is then served at `https://free-desk.web.app`. The host agent only answers `/identity` requests from these origins (plus the local dev server), so use the same project id when building the agent.
+The site is then served at `https://free-desk.web.app` (the `hosting.site` id in `firebase.json`; without one, the project id is the site id). The host agent only answers `/identity` requests from the project's and the site's `web.app` / `firebaseapp.com` origins (plus the local dev server); the release workflow reads the site id from `firebase.json`, and when running from source set `RC_HOSTING_SITE` in `host-agent/.env`.
 
 ## 5. Local Verification (Emulator)
 
