@@ -8,7 +8,7 @@ import { ARCHITECTURE_DOC_URL, GITHUB_URL, LICENSE_URL, RELEASES_URL } from '@/c
       class="container d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 pt-4 pb-2 small"
     >
       <div>
-        <span class="fw-semibold">FreeDesk</span>
+        <span class="fd-footer-brand">FreeDesk</span>
         · free, open-source remote desktop ·
         <a :href="LICENSE_URL" target="_blank" rel="noopener">MIT License</a>
       </div>

@@ -2,6 +2,10 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
 import 'bootstrap/dist/css/bootstrap.min.css'
+// Self-hosted variable fonts (no third-party request): Inter for text,
+// JetBrains Mono for headings, codes and labels.
+import '@fontsource-variable/inter'
+import '@fontsource-variable/jetbrains-mono'
 import '@/assets/main.css'
 
 import App from '@/App.vue'

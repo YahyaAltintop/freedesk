@@ -16,6 +16,9 @@ import { GITHUB_URL } from '@/constants/links'
 const router = useRouter()
 const authStore = useAuthStore()
 
+// The address the host program tells people to open (this very site).
+const siteOrigin = window.location.origin
+
 // ---- This computer (code served by the local host agent) -------------------
 
 const identity = ref<LocalIdentity | null>(null)
@@ -184,34 +187,35 @@ const features: Feature[] = [
   <section class="fd-hero">
     <div class="container fd-hero-inner">
       <div class="row align-items-center g-5">
-        <div class="col-lg-6">
-          <span class="fd-eyebrow"><AppIcon name="zap" :size="14" /> Free · open source · no account</span>
-          <h1 class="mt-3 mb-3">Remote desktop,<br />as simple as a code.</h1>
-          <p class="lead mb-4">
+        <div class="col-lg-7">
+          <span class="fd-eyebrow fd-rise" style="--d: 0">free · open source · no account</span>
+          <h1 class="fd-h1 fd-rise" style="--d: 1">
+            Remote desktop,<br />
+            <span class="fd-gradient-text">as simple as a code.</span>
+          </h1>
+          <p class="fd-lead fd-rise" style="--d: 2">
             See and control another Windows PC straight from your browser. One side runs a small
             program and reads out a 9-digit code; the other types it in here. Nothing to install,
             nothing to sign up for, nothing stored.
           </p>
-          <div class="d-flex flex-wrap align-items-start gap-3 mb-4">
-            <DownloadButton variant="light" />
-            <a class="btn btn-outline-light btn-lg" href="#how">How it works</a>
+          <div class="d-flex flex-wrap align-items-start gap-3 mb-4 fd-rise" style="--d: 3">
+            <DownloadButton />
+            <a class="btn btn-fd-ghost btn-lg" href="#how">How it works</a>
           </div>
-          <div class="fd-hero-trust">
-            <span><AppIcon name="shield" :size="16" /> Encrypted, direct connection</span>
-            <span><AppIcon name="thumbs-up" :size="16" /> Host approves every session</span>
-            <span><AppIcon name="code" :size="16" /> MIT licensed</span>
-          </div>
+          <ul class="fd-trust fd-rise" style="--d: 4">
+            <li><AppIcon name="shield" :size="15" /> encrypted, direct connection</li>
+            <li><AppIcon name="thumbs-up" :size="15" /> host approves every session</li>
+            <li><AppIcon name="code" :size="15" /> MIT licensed</li>
+          </ul>
         </div>
 
-        <div class="col-lg-5 offset-lg-1">
-          <div id="connect" class="fd-card">
-            <div class="d-flex align-items-center gap-3 mb-3">
+        <div class="col-lg-5 fd-rise" style="--d: 2">
+          <div id="connect" class="fd-card fd-card-glow">
+            <div class="fd-card-head">
               <span class="fd-icon-badge"><AppIcon name="monitor" /></span>
               <div>
                 <h2 class="fd-card-title">Connect to a computer</h2>
-                <p class="text-body-secondary small mb-0">
-                  Enter the 9-digit code shown on the other computer.
-                </p>
+                <p class="fd-card-sub">Enter the 9-digit code shown on the other computer.</p>
               </div>
             </div>
 
@@ -220,7 +224,7 @@ const features: Feature[] = [
             </div>
 
             <form @submit.prevent="handleConnect">
-              <label class="visually-hidden" for="remote-code">Computer code</label>
+              <label class="fd-label" for="remote-code">remote computer code</label>
               <input
                 id="remote-code"
                 class="form-control fd-code-input"
@@ -233,7 +237,7 @@ const features: Feature[] = [
                 @input="onCodeInput"
               />
               <button
-                class="btn btn-primary btn-lg w-100 mt-3 d-inline-flex align-items-center justify-content-center gap-2"
+                class="btn btn-fd-primary btn-lg w-100 mt-3 d-inline-flex align-items-center justify-content-center gap-2"
                 type="submit"
                 :disabled="busy || code.length !== 9"
               >
@@ -246,7 +250,7 @@ const features: Feature[] = [
               {{ connectError }}
             </div>
 
-            <p class="text-body-secondary small mt-3 mb-0">
+            <p class="fd-hint mt-3 mb-0">
               The person at the other computer has to click <strong>Yes</strong> before you see
               anything.
             </p>
@@ -261,42 +265,65 @@ const features: Feature[] = [
     <div class="row g-4">
       <div class="col-lg-6">
         <div class="fd-card h-100 d-flex flex-column">
-          <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+          <div class="fd-card-head fd-card-head-split">
             <div class="d-flex align-items-center gap-3">
               <span class="fd-icon-badge" :class="{ 'is-success': identity }">
                 <AppIcon name="hash" />
               </span>
               <div>
                 <h2 class="fd-card-title">Share this computer</h2>
-                <p class="text-body-secondary small mb-0">Let someone see and control this PC.</p>
+                <p class="fd-card-sub">Let someone see and control this PC.</p>
               </div>
             </div>
-            <span
-              v-if="identityChecked"
-              class="badge rounded-pill text-nowrap"
-              :class="identity ? 'text-bg-success' : 'text-bg-secondary'"
-            >
-              {{ identity ? 'Agent running' : 'Agent not detected' }}
+            <span v-if="identityChecked" class="fd-status" :class="identity ? 'is-on' : 'is-off'">
+              <span class="fd-status-dot"></span>
+              {{ identity ? 'agent running' : 'agent not detected' }}
             </span>
           </div>
 
-          <div v-if="!identityChecked" class="text-center py-4">
-            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+          <!-- What the host program's window shows, live when it is running here. -->
+          <div class="fd-term mb-3" aria-live="polite">
+            <div class="fd-term-bar">
+              <span class="fd-term-dot"></span>
+              <span class="fd-term-dot"></span>
+              <span class="fd-term-dot"></span>
+              <span class="ms-2">freedesk-host.exe</span>
+            </div>
+            <div class="fd-term-body">
+              <div v-if="!identityChecked">
+                <span class="fd-term-k">$</span> looking for the host agent on this computer
+                <span class="fd-cursor"></span>
+              </div>
+              <template v-else-if="identity">
+                <div>
+                  <span class="fd-term-k">[host-agent]</span> host registered (name="{{ identity.name }}")
+                </div>
+                <div><span class="fd-term-k">[host-agent]</span> THIS COMPUTER'S CODE:</div>
+                <div class="fd-term-code">{{ formatCode(identity.code) }}</div>
+                <div><span class="fd-term-k">[host-agent]</span> web page: {{ siteOrigin }}</div>
+                <div>
+                  <span class="fd-term-k">[host-agent]</span> waiting for connection requests
+                  <span class="fd-cursor"></span>
+                </div>
+              </template>
+              <template v-else>
+                <div><span class="fd-term-k">$</span> freedesk-host.exe</div>
+                <div class="fd-term-dim">
+                  waiting for the program to start on this computer <span class="fd-cursor"></span>
+                </div>
+              </template>
+            </div>
           </div>
 
-          <template v-else-if="identity">
-            <p class="small text-body-secondary mb-1">
-              {{ identity.name }}<span v-if="identity.version"> · host agent {{ identity.version }}</span>
-            </p>
-            <div class="fd-code mb-2">{{ formatCode(identity.code) }}</div>
-            <p class="small text-body-secondary">
+          <template v-if="identity">
+            <p class="fd-hint">
               Give this code to the person who should connect. You will be asked to click
               <strong>Yes</strong> before they see anything, and the code changes every time the
               agent starts.
             </p>
             <div class="mt-auto">
               <button
-                class="btn btn-outline-primary d-inline-flex align-items-center gap-2"
+                class="btn btn-fd-ghost d-inline-flex align-items-center gap-2"
                 type="button"
                 @click="copyCode"
               >
@@ -306,7 +333,7 @@ const features: Feature[] = [
             </div>
           </template>
 
-          <template v-else>
+          <template v-else-if="identityChecked">
             <ol class="fd-steps mb-4">
               <li>
                 <span><strong>Download</strong> the zip and unpack it anywhere.</span>
@@ -327,14 +354,14 @@ const features: Feature[] = [
             <div class="d-flex flex-wrap align-items-start gap-3 mt-auto">
               <DownloadButton />
               <button
-                class="btn btn-outline-secondary btn-lg d-inline-flex align-items-center gap-2"
+                class="btn btn-fd-ghost btn-lg d-inline-flex align-items-center gap-2"
                 type="button"
                 @click="loadIdentity"
               >
                 <AppIcon name="refresh" :size="16" /> Check again
               </button>
             </div>
-            <p class="small text-body-secondary mt-3 mb-0">
+            <p class="fd-hint mt-3 mb-0">
               <template v-if="isWindows">
                 This page re-checks by itself once the program is running.
               </template>
@@ -350,16 +377,16 @@ const features: Feature[] = [
 
       <div id="how" class="col-lg-6">
         <div class="fd-card h-100">
-          <div class="d-flex align-items-center gap-3 mb-4">
-            <span class="fd-icon-badge is-violet"><AppIcon name="mouse-pointer" /></span>
+          <div class="fd-card-head">
+            <span class="fd-icon-badge is-pink"><AppIcon name="mouse-pointer" /></span>
             <div>
               <h2 class="fd-card-title">How it works</h2>
-              <p class="text-body-secondary small mb-0">Three steps, about a minute.</p>
+              <p class="fd-card-sub">Three steps, about a minute.</p>
             </div>
           </div>
           <div class="fd-how">
             <div class="fd-how-step">
-              <span class="fd-how-num">1</span>
+              <span class="fd-how-num">01</span>
               <div>
                 <strong>Run the host program</strong>
                 <p>
@@ -369,14 +396,14 @@ const features: Feature[] = [
               </div>
             </div>
             <div class="fd-how-step">
-              <span class="fd-how-num">2</span>
+              <span class="fd-how-num">02</span>
               <div>
                 <strong>Enter the code</strong>
                 <p>On any other computer, open this page, type the code and press Connect.</p>
               </div>
             </div>
             <div class="fd-how-step">
-              <span class="fd-how-num">3</span>
+              <span class="fd-how-num">03</span>
               <div>
                 <strong>Click Yes on the host</strong>
                 <p>
@@ -393,7 +420,11 @@ const features: Feature[] = [
   </section>
 
   <!-- Why FreeDesk -->
-  <section class="container pt-4 pb-5">
+  <section class="container pt-5 pb-5">
+    <div class="fd-section-head">
+      <span class="fd-eyebrow">why freedesk</span>
+      <h2 class="fd-h2">Small on purpose.</h2>
+    </div>
     <div class="row g-3">
       <div v-for="feature in features" :key="feature.title" class="col-md-6 col-lg-3">
         <div class="fd-feature">
@@ -403,7 +434,7 @@ const features: Feature[] = [
         </div>
       </div>
     </div>
-    <p class="text-body-secondary small mt-4 mb-0">
+    <p class="fd-hint mt-4 mb-0">
       Windows 10/11 hosts, primary monitor only, no audio or file transfer, and some networks
       (mobile data, CGNAT) cannot connect directly.
       <a :href="GITHUB_URL" target="_blank" rel="noopener">Full details and source on GitHub.</a>
