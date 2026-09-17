@@ -15,6 +15,9 @@ This folder lets someone else see and control THIS computer from a browser.
 4. Close the console window (or press Ctrl+C in it) to stop sharing. The code
    stops working immediately.
 
+If the window shows an error instead of a code, it also says what to fix;
+the window stays open until you press Enter.
+
 Files:
   freedesk-host.exe   the agent (needs no installation)
   ffmpeg.exe          screen capture and video encoding (unmodified official

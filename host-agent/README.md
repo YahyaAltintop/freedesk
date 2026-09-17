@@ -32,7 +32,7 @@ Release builds have the Firebase values embedded (`-ldflags -X`, see `.github/wo
 
 | Variable | Meaning |
 |----------|---------|
-| `RC_FIREBASE_API_KEY`, `RC_FIREBASE_PROJECT_ID`, `RC_FIREBASE_DB_URL` | The Firebase project (same as the viewer) |
+| `RC_FIREBASE_API_KEY`, `RC_FIREBASE_PROJECT_ID`, `RC_FIREBASE_DB_URL` | The Firebase project (same as the viewer). The key must have **no application restrictions**: the agent sends no website referrer, so a website-restricted key rejects it (see [firebase/README.md → API keys](../firebase/README.md#api-keys)) |
 | `RC_HOST_NAME` | Display name (default: machine name, max 64 chars) |
 | `RC_FFMPEG_PATH` | ffmpeg executable (default: `ffmpeg.exe` next to the agent, else PATH) |
 | `RC_APPROVAL` | `dialog` (default on Windows) or `console` (`y` + Enter; used by tests and headless runs) |
@@ -48,6 +48,16 @@ go build -o bin/freedesk-host.exe ./cmd/host
 ./bin/freedesk-host.exe
 ```
 Stop it with Ctrl+C or by closing the window: the agent finishes the current session, removes its host record and deletes its anonymous account (about 3 seconds).
+
+## Troubleshooting
+When start-up fails, the agent prints the reason and, for the known ones, what to fix. A double-clicked window stays open until Enter so the message can be read (builds before 0.2.1 closed at once; start those from a terminal to see it).
+
+| Message | Meaning |
+|---------|---------|
+| `API_KEY_HTTP_REFERRER_BLOCKED` | The API key is limited to websites. The agent needs a key with no application restrictions (`FIREBASE_AGENT_API_KEY` for releases). |
+| `API_KEY_SERVICE_BLOCKED` | The key's API restrictions exclude *Identity Toolkit API* / *Token Service API*. Allow both or don't restrict the key. |
+| `ADMIN_ONLY_OPERATION` | Anonymous sign-in is disabled: Firebase Console → Authentication → Sign-in method → Anonymous. |
+| `refused to publish this computer 3 times in a row` | The security rules are not deployed: `cd firebase && firebase deploy --only database`. |
 
 ## Tests
 ```bash

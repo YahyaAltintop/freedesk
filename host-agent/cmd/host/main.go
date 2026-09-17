@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -31,7 +32,7 @@ import (
 )
 
 // appVersion is overwritten by the release build (-ldflags "-X main.appVersion=…").
-var appVersion = "0.2.0-dev"
+var appVersion = "0.2.1-dev"
 
 const (
 	envFile = ".env"
@@ -50,8 +51,20 @@ const (
 func main() {
 	log.SetFlags(log.LstdFlags)
 	if err := run(); err != nil {
-		log.Fatalf("[host-agent] error: %v", err)
+		log.Printf("[host-agent] error: %v", err)
+		exitWithError()
 	}
+}
+
+// exitWithError keeps a double-clicked console window open until Enter is
+// pressed, so the message above can actually be read; started from a
+// terminal, the agent exits at once.
+func exitWithError() {
+	if ownsConsole() {
+		fmt.Fprint(os.Stderr, "\nPress Enter to close this window.")
+		_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
+	}
+	os.Exit(1)
 }
 
 func run() error {
@@ -75,7 +88,7 @@ func run() error {
 
 	// --- Pairing code + host record --------------------------------------------
 	registrar := host.NewRegistrar(rtdb, manager.UID(), appVersion)
-	code, err := registerWithFreshCode(ctx, registrar, cfg.HostName)
+	code, err := registerWithFreshCode(ctx, registrar, cfg.HostName, cfg.ProjectID)
 	if err != nil {
 		return err
 	}
@@ -144,19 +157,31 @@ func run() error {
 
 // registerWithFreshCode publishes the host under a random code, picking a new
 // one if the rules refuse it (a live record owned by someone else).
-func registerWithFreshCode(ctx context.Context, registrar *host.Registrar, name string) (string, error) {
+func registerWithFreshCode(ctx context.Context, registrar *host.Registrar, name, projectID string) (string, error) {
 	for attempt := 1; ; attempt++ {
 		code := newPairingCode()
 		err := registrar.Register(ctx, code, name)
 		if err == nil {
 			return code, nil
 		}
-		if attempt < registerAttempts && firebase.IsPermissionDenied(err) {
+		if !firebase.IsPermissionDenied(err) {
+			return "", err
+		}
+		if attempt < registerAttempts {
 			log.Printf("[host-agent] code %s is taken — generating a new code", code)
 			continue
 		}
-		return "", err
+		return "", registrationDeniedError(attempt, projectID, err)
 	}
+}
+
+// registrationDeniedError explains a run of consecutive denials: several
+// random codes being taken at the same moment is practically impossible, so
+// the project's security rules are almost certainly missing.
+func registrationDeniedError(attempts int, projectID string, err error) error {
+	return fmt.Errorf("the database refused to publish this computer %d times in a row (%w)\n"+
+		"  -> The security rules are probably not deployed to project %q: run `firebase deploy --only database` in the firebase folder (see firebase/README.md).",
+		attempts, err, projectID)
 }
 
 func runHeartbeat(ctx context.Context, registrar *host.Registrar, code string, interval time.Duration) {

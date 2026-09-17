@@ -54,7 +54,14 @@ cd ../firebase && firebase deploy --only hosting
 
 The site is then served at `https://free-desk.web.app` (the `hosting.site` id in `firebase.json`; without one, the project id is the site id). The host agent only answers `/identity` requests from the project's and the site's `web.app` / `firebaseapp.com` origins (plus the local dev server); the release workflow reads the site id from `firebase.json`, and when running from source set `RC_HOSTING_SITE` in `host-agent/.env`.
 
-> **API key website restrictions.** If the Web API key is limited to certain websites (Google Cloud Console → APIs & Services → Credentials → *Browser key (auto created by Firebase)* → Website restrictions), the site must be on the list: add `https://free-desk.web.app/*` and `https://free-desk.firebaseapp.com/*` (and `http://localhost:9205/*` for development). Otherwise the viewer fails at start-up with `auth/requests-from-referer-...-are-blocked`. Adding the site under Authentication → Settings → Authorized domains is harmless and recommended too.
+## API keys
+
+Neither key below is a secret (both ship to browsers or inside the exe); the security rules are what protect the data.
+
+- **Viewer key** (`VITE_FIREBASE_API_KEY`, repository variable `FIREBASE_API_KEY`). It may be limited to websites (Google Cloud Console → APIs & Services → Credentials → the key → *Application restrictions: Websites*); then the site must be on the list: `https://free-desk.web.app/*` and `https://free-desk.firebaseapp.com/*` (and `http://localhost:9205/*` for development). Otherwise the viewer fails at start-up with `auth/requests-from-referer-...-are-blocked`. Adding the site under Authentication → Settings → Authorized domains is harmless and recommended too.
+- **Host agent key** (`RC_FIREBASE_API_KEY` in `host-agent/.env`, repository variable `FIREBASE_AGENT_API_KEY`). The agent is a desktop program and sends no website referrer, so a website-restricted key rejects it with `API_KEY_HTTP_REFERRER_BLOCKED` and the agent exits at start-up. Give it its own key: Credentials → *Create credentials → API key*, *Application restrictions: None*, *API restrictions*: either *Don't restrict key* or exactly *Identity Toolkit API* and *Token Service API* (a key that lacks these answers `API_KEY_SERVICE_BLOCKED`). A new key can take a few minutes to become active. A single unrestricted key for both viewer and agent works as well; then `FIREBASE_AGENT_API_KEY` can stay unset and the release falls back to `FIREBASE_API_KEY`.
+
+The release workflow probes the agent's key without a referrer before building and fails with the reason when the key is restricted, so a broken exe is never published. The agent itself prints the reason and the fix in its window when sign-in is refused.
 
 ## 5. Local Verification (Emulator)
 

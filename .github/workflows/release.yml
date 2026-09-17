@@ -4,9 +4,17 @@ name: Release
 # with the Firebase project embedded, bundles ffmpeg, and publishes
 # freedesk-host-windows-x64.zip on the GitHub release.
 #
-# Required repository VARIABLES (Settings → Secrets and variables → Actions):
-#   FIREBASE_API_KEY, FIREBASE_PROJECT_ID, FIREBASE_DATABASE_URL
-# (the same public web values the viewer uses; the security rules protect the data).
+# Required repository VARIABLES (Settings → Secrets and variables → Actions → Variables):
+#   FIREBASE_PROJECT_ID, FIREBASE_DATABASE_URL (the viewer's public values) and
+#   FIREBASE_AGENT_API_KEY: an API key of the same project WITHOUT application
+#   restrictions. The agent is a desktop program and sends no website referrer,
+#   so a key limited to websites rejects it (API_KEY_HTTP_REFERRER_BLOCKED) and
+#   the exe exits at start-up; its API restrictions, if any, must allow
+#   "Identity Toolkit API" and "Token Service API". Falls back to the viewer's
+#   FIREBASE_API_KEY when unset (fine when that key is unrestricted).
+# The "Check the API key" step refuses to build with a key that rejects a
+# request without a referrer, so a broken exe is never published.
+# None of these values is a secret: the security rules protect the data.
 
 on:
   push:
@@ -24,6 +32,10 @@ jobs:
   windows:
     name: Build and publish (Windows x64)
     runs-on: windows-latest
+    env:
+      AGENT_API_KEY: ${{ vars.FIREBASE_AGENT_API_KEY || vars.FIREBASE_API_KEY }}
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -34,23 +46,56 @@ jobs:
       - name: Check Firebase variables
         shell: pwsh
         run: |
-          foreach ($name in "FIREBASE_API_KEY", "FIREBASE_PROJECT_ID", "FIREBASE_DATABASE_URL") {
+          if (-not $env:AGENT_API_KEY) {
+            throw "Repository variable FIREBASE_AGENT_API_KEY (or FIREBASE_API_KEY) is not set (Settings → Secrets and variables → Actions → Variables)."
+          }
+          foreach ($name in "FIREBASE_PROJECT_ID", "FIREBASE_DATABASE_URL") {
             if (-not (Get-Item "env:$name" -ErrorAction SilentlyContinue).Value) {
               throw "Repository variable $name is not set (Settings → Secrets and variables → Actions → Variables)."
             }
           }
-        env:
-          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
-          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
-          FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
+
+      - name: Check the API key accepts a desktop program
+        shell: pwsh
+        run: |
+          # The agent is not a web site: its requests carry no HTTP referrer.
+          # Probe both auth services with a bogus token and no referrer. A
+          # usable key answers 400 INVALID_ID_TOKEN / INVALID_REFRESH_TOKEN;
+          # a key with application or API restrictions answers 403 and would
+          # make every published exe exit at start-up.
+          $checks = @(
+            @{ name = "Identity Toolkit API"; expect = "INVALID_ID_TOKEN"
+               url = "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=$env:AGENT_API_KEY"
+               body = '{"idToken":"probe"}' },
+            @{ name = "Token Service API"; expect = "INVALID_REFRESH_TOKEN"
+               url = "https://securetoken.googleapis.com/v1/token?key=$env:AGENT_API_KEY"
+               body = '{"grant_type":"refresh_token","refresh_token":"probe"}' }
+          )
+          $bodyFile = [System.IO.Path]::GetTempFileName()
+          $replyFile = [System.IO.Path]::GetTempFileName()
+          foreach ($c in $checks) {
+            Set-Content -Path $bodyFile -Value $c.body -NoNewline -Encoding ascii
+            $status = & curl.exe -sS -o $replyFile -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$bodyFile" $c.url
+            $message = Get-Content -Path $replyFile -Raw
+            $reason = ""
+            try {
+              $err = ($message | ConvertFrom-Json).error
+              $message = $err.message
+              $reason = @($err.details | Where-Object { $_.reason } | ForEach-Object { $_.reason })[0]
+            } catch {}
+            if ($status -eq "400" -and $message -match $c.expect) {
+              "$($c.name): key accepted (the probe token is rejected as expected)"
+              continue
+            }
+            throw ("$($c.name) rejected the agent's API key without a referrer (HTTP $status $reason): $message`n" +
+              "The host agent is a desktop program. Use a key with Application restrictions = None whose API restrictions " +
+              "allow both Identity Toolkit API and Token Service API (repository variable FIREBASE_AGENT_API_KEY).")
+          }
 
       - name: Build host agent
         shell: pwsh
         working-directory: host-agent
         env:
-          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
-          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
-          FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
           CGO_ENABLED: "0"
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
@@ -62,7 +107,7 @@ jobs:
           if (-not $site) { $site = "" }
           $ldflags = "-s -w " +
             "-X main.appVersion=$version " +
-            "-X $cfg.BuildAPIKey=$env:FIREBASE_API_KEY " +
+            "-X $cfg.BuildAPIKey=$env:AGENT_API_KEY " +
             "-X $cfg.BuildProjectID=$env:FIREBASE_PROJECT_ID " +
             "-X $cfg.BuildDatabaseURL=$env:FIREBASE_DATABASE_URL " +
             "-X $cfg.BuildHostingSite=$site"

@@ -124,7 +124,7 @@ func (c *Client) postJSON(ctx context.Context, url string, payload, out any) err
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("authentication request failed (%d): %s", resp.StatusCode, string(data))
+		return newError(resp.StatusCode, data)
 	}
 	if out == nil {
 		return nil
