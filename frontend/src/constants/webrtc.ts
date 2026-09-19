@@ -54,5 +54,8 @@ export const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
 // The most a browser that cannot stream to disk will be asked to hold. Past
 // this the file is refused with an explanation rather than risking the tab.
 export const BLOB_FALLBACK_MAX_BYTES = 64 * 1024 * 1024
+// One clipboard payload. Big enough for the code and log snippets people
+// actually move around; must match MaxTextBytes in the Go clipboard package.
+export const MAX_CLIPBOARD_BYTES = 256 * 1024
 export const MAX_BATCH_FILES = 32
 export const MAX_BATCH_BYTES = 1024 * 1024 * 1024

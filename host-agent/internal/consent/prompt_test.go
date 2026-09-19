@@ -14,13 +14,27 @@ const testTimeout = 45 * time.Second
 // effect of some other change.
 
 func TestConnectPromptText(t *testing.T) {
-	got := ConnectRequest("0QiE1KFGS1S7RXm7ASKnXApwz1a5").Text(testTimeout)
+	got := ConnectRequest("0QiE1KFGS1S7RXm7ASKnXApwz1a5", false).Text(testTimeout)
 	want := "Someone entered this computer's code and wants to connect.\n\n" +
 		"Allow them to see your screen and control this computer?\n\n" +
 		"This request is rejected automatically in 45 seconds.\n" +
 		"(viewer 0QiE1KFG…)"
 	if got != want {
 		t.Fatalf("connection prompt changed.\n got: %q\nwant: %q", got, want)
+	}
+}
+
+// When the clipboard is shared the operator has to be told before they say
+// yes: the old wording described only what they could watch happen on screen.
+func TestConnectPromptMentionsTheClipboard(t *testing.T) {
+	got := ConnectRequest("0QiE1KFGS1S7RXm7ASKnXApwz1a5", true).Text(testTimeout)
+	want := "Someone entered this computer's code and wants to connect.\n\n" +
+		"Allow them to see your screen, control this computer,\n" +
+		"and share copied text with it?\n\n" +
+		"This request is rejected automatically in 45 seconds.\n" +
+		"(viewer 0QiE1KFG…)"
+	if got != want {
+		t.Fatalf("clipboard prompt changed.\n got: %q\nwant: %q", got, want)
 	}
 }
 
@@ -95,7 +109,7 @@ func TestFilePromptListsSixFilesRatherThanSummarisingOne(t *testing.T) {
 
 // The operator must never mistake one question for the other.
 func TestTitlesDifferPerKind(t *testing.T) {
-	connect := ConnectRequest("v").Title(7)
+	connect := ConnectRequest("v", false).Title(7)
 	files := IncomingFiles("v", []FileOffer{{Name: "a.txt", Size: 1}}, "C:\\dl").Title(7)
 	if connect == files {
 		t.Fatalf("both prompts use the title %q", connect)

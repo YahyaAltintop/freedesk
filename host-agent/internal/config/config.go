@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/clipboard"
 	"time"
 )
 
@@ -39,7 +41,11 @@ type Config struct {
 	LocalAPIPort int    // loopback port serving the pairing code to the local web UI
 	FFmpegPath   string // ffmpeg executable for screen capture (empty = next to the exe, else PATH)
 	ApprovalMode string // "dialog" (Windows default) or "console"
-	HostingSite  string // Firebase Hosting site id if it differs from the project id
+	// ClipboardMode is "text" (share clipboard text with the viewer, the
+	// default) or "off". Off is a real switch, not a hint: the capability is
+	// never advertised and nothing ever reads the clipboard.
+	ClipboardMode string
+	HostingSite   string // Firebase Hosting site id if it differs from the project id
 
 	// WebOrigins are the browser origins allowed to read the pairing code from
 	// the loopback endpoint: the deployed web app plus the local dev server.
@@ -80,11 +86,18 @@ func Load(envFilePath string) (*Config, error) {
 		HostName:          os.Getenv("RC_HOST_NAME"),
 		FFmpegPath:        os.Getenv("RC_FFMPEG_PATH"),
 		ApprovalMode:      strings.ToLower(strings.TrimSpace(os.Getenv("RC_APPROVAL"))),
+		ClipboardMode:     strings.ToLower(strings.TrimSpace(os.Getenv("RC_CLIPBOARD"))),
 		HostingSite:       firstNonEmpty(os.Getenv("RC_HOSTING_SITE"), BuildHostingSite),
 		LocalAPIPort:      defaultLocalAPIPort,
 		HeartbeatInterval: defaultHeartbeatInterval,
 		AuthBaseURL:       defaultAuthBaseURL,
 		TokenBaseURL:      defaultTokenBaseURL,
+	}
+	if cfg.ClipboardMode == "" {
+		cfg.ClipboardMode = clipboard.ModeText
+	}
+	if cfg.ClipboardMode != clipboard.ModeText && cfg.ClipboardMode != clipboard.ModeOff {
+		return nil, fmt.Errorf("RC_CLIPBOARD invalid: %q (must be text or off)", cfg.ClipboardMode)
 	}
 	if cfg.ApprovalMode != "" && cfg.ApprovalMode != "dialog" && cfg.ApprovalMode != "console" {
 		return nil, fmt.Errorf("RC_APPROVAL invalid: %q (must be dialog or console)", cfg.ApprovalMode)

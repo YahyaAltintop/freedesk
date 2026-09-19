@@ -25,6 +25,12 @@ without your click, and an existing file is never replaced.
 If they ask you for files, a file picker opens on this computer. Only what
 you choose there is sent, and cancelling sends nothing.
 
+While you are connected, text you copy is shared with the other person and
+theirs with you, so Ctrl+C and Ctrl+V work across both computers. The window
+that asks you to accept the connection says so. Text copied from a password
+manager is skipped, and you can switch sharing off entirely by putting
+RC_CLIPBOARD=off in the .env file next to the program.
+
 Files:
   freedesk-host.exe   the agent (needs no installation)
   ffmpeg.exe          screen capture and video encoding (unmodified official
@@ -32,7 +38,7 @@ Files:
   LICENSE.txt         FreeDesk license (MIT)
 
 Limits of this version: Windows 10/11 only, primary monitor only, no audio,
-no clipboard sharing, folders cannot be sent (only files), no unattended
+clipboard sharing is text only, folders cannot be sent (only files), no unattended
 access (someone must click Yes), and some networks (mobile / CGNAT) cannot
 connect directly.
 

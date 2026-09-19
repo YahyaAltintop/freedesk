@@ -8,8 +8,9 @@ import { useInputCapture } from '@/composables/useInputCapture'
 import { useFullscreen } from '@/composables/useFullscreen'
 import { useFileTransfer } from '@/composables/useFileTransfer'
 import { useFileDrop } from '@/composables/useFileDrop'
+import { useClipboardSync } from '@/composables/useClipboardSync'
 import TransferPanel from '@/components/TransferPanel.vue'
-import { CAP_FILE_RECV, CAP_FILE_SEND } from '@/types/protocol'
+import { CAP_CLIP_TEXT, CAP_FILE_RECV, CAP_FILE_SEND } from '@/types/protocol'
 import { useServerNow } from '@/composables/useServerNow'
 import { isHostOnline } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
@@ -86,6 +87,23 @@ const canReceive = computed(
 // Drops land on the whole stage, not just the video: a file dropped on the
 // toolbar would otherwise navigate the browser away and end the session.
 const { dragging, refusal } = useFileDrop(stageEl, send, transfersAvailable)
+
+// Clipboard text syncs on its own while connected. Ctrl+C and Ctrl+V are still
+// just forwarded keystrokes — the text is already on the other clipboard by the
+// time they land, so they paste natively.
+const clipboardShared = computed(
+  () => state.value === 'connected' && fileReady.value && hostCaps.value.has(CAP_CLIP_TEXT),
+)
+const { pending: clipboardPending, copyPending } = useClipboardSync(
+  fileChannel,
+  clipboardShared,
+  controlling,
+)
+
+async function takeClipboard(): Promise<void> {
+  await copyPending()
+  focusStage()
+}
 
 const panelOpen = ref(false)
 const fileInputEl = ref<HTMLInputElement | null>(null)
@@ -266,6 +284,16 @@ onBeforeUnmount(() => {
         <span class="fw-semibold">{{ host?.name ?? formattedCode }}</span>
         <span class="badge text-bg-dark border font-monospace">{{ formattedCode }}</span>
         <span class="badge text-bg-info">{{ statusLabel }}</span>
+        <button
+          v-if="clipboardPending"
+          class="badge text-bg-warning border-0 fd-clip-chip"
+          type="button"
+          title="The other computer copied this; click to put it on your clipboard"
+          @mousedown.prevent
+          @click="takeClipboard"
+        >
+          Copy their text
+        </button>
         <span v-if="controlling" class="badge text-bg-success">Control active</span>
         <span v-else-if="sessionReady" class="badge text-bg-warning">Click the screen to control</span>
       </div>
@@ -434,6 +462,10 @@ onBeforeUnmount(() => {
   object-fit: contain;
   background-color: #000;
   outline: none;
+}
+
+.fd-clip-chip {
+  cursor: pointer;
 }
 
 .fd-stage-hint {

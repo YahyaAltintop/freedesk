@@ -246,7 +246,46 @@ Cancelling it is a `f-reject` with `denied`.
 Resuming is not supported. `offset` exists in the schema and is always `0`, so
 adding it later does not change the contract.
 
-## 5. Design notes
+## 5. Clipboard (`file` channel)
+
+| `t` | Sent by | Fields | Meaning |
+|-----|---------|--------|---------|
+| `cb` | either | `text`, `trunc?` | This is now on my clipboard |
+
+The same verb travels both ways. It rides the file channel rather than the
+input one: clipboard text can run to a couple of hundred kilobytes, and on the
+ordered input channel a large paste would queue ahead of every mouse move
+behind it. Capped at **256 KB**; `trunc` says the text was cut.
+
+**This is a sync, not an interception.** Ctrl+C and Ctrl+V stay ordinary
+forwarded keystrokes. Because the text is already on the other clipboard by the
+time the keystroke lands, the forwarded Ctrl+V pastes it natively. A viewer must
+**not** swallow the shortcut and send something in its place: against a host
+that does not understand the replacement, that kills Ctrl+V outright — a worse
+regression than not having the feature.
+
+Normative host requirements:
+
+- The clipboard is read only while a session is connected, and the state it was
+  in when the session started is **not** sent — that belongs to the operator,
+  not to the session.
+- A change the host made because the viewer asked for it **must not** be sent
+  back. The host records the clipboard sequence number its own write produced
+  and skips it. A sequence number rather than a content comparison, because
+  copying the same thing twice is a real thing people do and should still sync.
+- Contents marked `ExcludeClipboardContentFromMonitorProcessing`, or
+  `CanIncludeInClipboardHistory` set to zero, **must be skipped**. Password
+  managers set these, so honouring them means a password copied from one never
+  reaches the viewer.
+- Clipboard contents are **never logged**. Lengths only.
+- Sharing is advertised as `clip.text` and can be switched off entirely
+  (`RC_CLIPBOARD=off`), in which case the capability is absent and nothing reads
+  the clipboard at all.
+- The connection prompt **must say** that the clipboard will be shared. It is
+  the one part of a session that reads something of the operator's while they
+  use their own machine, rather than only doing what they can watch on screen.
+
+## 6. Design notes
 - **Why normalized coordinates?** The viewer's window and the host's screen are at different resolutions; `[0,1]` makes both sides resolution-independent.
 - **Why `code` (not key)?** Remote control requires physical key mapping; `code` is independent of keyboard layout and maps reliably to a virtual key.
 - **Why keep `input` reliable and ordered?** Correctness first: a dropped `ku` leaves a key stuck down on the host, and a reordered `md`/`mu` pair turns a click into a drag. A separate `ordered:false, maxRetransmits:0` channel for high-frequency `m` events remains a possible optimisation.

@@ -4,12 +4,14 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	pion "github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/capture"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/clipboard"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/consent"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/input"
@@ -67,6 +69,8 @@ type Coordinator struct {
 	// picker lets the operator choose files to send. Nil-safe: a build or a
 	// mode without one simply never advertises downloads.
 	picker consent.FilePicker
+	// clipboardMode is RC_CLIPBOARD: "text" or "off".
+	clipboardMode string
 	// version is announced to the viewer in the greeting, so it can explain
 	// what an old agent is missing instead of just disabling a button.
 	version string
@@ -78,10 +82,11 @@ type Coordinator struct {
 // NewCoordinator builds a coordinator for the authenticated owner, with the
 // ICE config and the ffmpeg executable to use for screen capture (empty =
 // "ffmpeg" from PATH).
-func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, ffmpegPath, version string, picker consent.FilePicker) *Coordinator {
+func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, ffmpegPath, version string, picker consent.FilePicker, clipboardMode string) *Coordinator {
 	return &Coordinator{
 		rtdb: rtdb, ownerUID: ownerUID, cfg: cfg,
 		ffmpegPath: ffmpegPath, version: version, picker: picker,
+		clipboardMode: clipboardMode,
 	}
 }
 
@@ -94,6 +99,9 @@ func (c *Coordinator) capabilities() []string {
 	// would offer a button that can never do anything.
 	if c.picker != nil && c.picker.Available() {
 		caps = append(caps, protocol.CapFileRecv)
+	}
+	if c.clipboardMode == clipboard.ModeText {
+		caps = append(caps, protocol.CapClipText)
 	}
 	return caps
 }
@@ -168,7 +176,7 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 			}
 		}
 	}()
-	approved := approver.Ask(promptCtx, consent.ConnectRequest(req.ViewerUID))
+	approved := approver.Ask(promptCtx, consent.ConnectRequest(req.ViewerUID, c.clipboardMode == clipboard.ModeText))
 	cancelPrompt()
 
 	select {
@@ -196,6 +204,10 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 	var once sync.Once
 	markClosed := func() { once.Do(func() { close(closed) }) }
 
+	// The clipboard poller runs on its own thread and needs somewhere to send;
+	// the channel only exists once the peer connection hands it over.
+	var fileChannel atomic.Pointer[*pion.DataChannel]
+
 	// One input handler per session: it tracks what the viewer holds down so
 	// nothing stays pressed on this machine once the viewer is gone.
 	inputHandler := input.NewHandler()
@@ -204,6 +216,24 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 	// writing when the viewer left must not survive the session either.
 	transfers := transfer.NewSession(ctx, fileApprover{approver: approver, viewerUID: req.ViewerUID},
 		c.picker, func(format string, args ...any) { log.Printf(format, args...) })
+
+	// The clipboard rides the file channel too: its text can run to a couple of
+	// hundred kilobytes, which on the ordered input channel would queue ahead of
+	// every mouse move behind it.
+	var clip *clipboard.Sync
+	if c.clipboardMode == clipboard.ModeText {
+		var err error
+		clip, err = clipboard.NewSync(c.clipboardMode, func(raw string) {
+			if ch := fileChannel.Load(); ch != nil {
+				_ = (*ch).SendText(raw)
+			}
+		})
+		if err != nil {
+			// Non-fatal, like a failed capture: the session is still worth
+			// having without it.
+			log.Printf("[session] %s: clipboard sharing unavailable: %v", req.ID, err)
+		}
+	}
 
 	hooks := webrtc.Hooks{
 		// One callback per channel of the session; what a channel carries is
@@ -240,13 +270,21 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 				})
 			case webrtc.FileChannelLabel:
 				transfers.Attach(dc)
+				fileChannel.Store(&dc)
 				dc.OnMessage(func(msg pion.DataChannelMessage) {
 					// IsString is the only thing separating a control frame
 					// from a chunk of a file.
+					if msg.IsString && clip != nil && peekType(msg.Data) == clipboard.Type {
+						clip.Handle(msg.Data)
+						return
+					}
 					transfers.Handle(msg.Data, msg.IsString)
 				})
 				dc.OnClose(func() {
 					transfers.Close()
+					if clip != nil {
+						clip.Stop()
+					}
 				})
 			}
 		},
@@ -282,6 +320,9 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 	}
 	inputHandler.ReleaseAll()
 	transfers.Close()
+	if clip != nil {
+		clip.Stop()
+	}
 	_ = pc.Close()
 	log.Printf("[session] %s: connection ended", req.ID)
 }

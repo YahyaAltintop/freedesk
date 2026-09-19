@@ -132,7 +132,7 @@ func run() error {
 	log.Printf("[host-agent] files you accept will be saved to: %s", downloads)
 	transfer.SweepPartials(downloads)
 
-	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath, appVersion, picker)
+	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath, appVersion, picker, cfg.ClipboardMode)
 	inbox := session.NewInbox(rtdb, manager.UID())
 
 	var sessions sessionTracker

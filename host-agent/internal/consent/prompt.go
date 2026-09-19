@@ -39,11 +39,18 @@ type Prompt struct {
 	ViewerUID string
 	Files     []FileOffer
 	Folder    string
+	// Clipboard is true when this session will also share clipboard text. The
+	// operator has to be told: it is the one part of a session that reads
+	// something of theirs while they are using their own machine, rather than
+	// only doing what they can see on screen.
+	Clipboard bool
 }
 
-// ConnectRequest is the question asked before a session starts.
-func ConnectRequest(viewerUID string) Prompt {
-	return Prompt{Kind: KindConnect, ViewerUID: viewerUID}
+// ConnectRequest is the question asked before a session starts. clipboard says
+// whether this agent will also share clipboard text, so the wording can be
+// honest about it.
+func ConnectRequest(viewerUID string, clipboard bool) Prompt {
+	return Prompt{Kind: KindConnect, ViewerUID: viewerUID, Clipboard: clipboard}
 }
 
 // IncomingFiles is the question asked before anything is written to disk.
@@ -77,7 +84,15 @@ func (p Prompt) Text(timeout time.Duration) string {
 	var b strings.Builder
 	if p.Kind == KindConnect {
 		b.WriteString("Someone entered this computer's code and wants to connect.\n\n")
-		b.WriteString("Allow them to see your screen and control this computer?\n\n")
+		if p.Clipboard {
+			// Said out loud because it is the one part of a session that reads
+			// something of the operator's while they use their own machine,
+			// rather than only doing what they can watch happen on screen.
+			b.WriteString("Allow them to see your screen, control this computer,\n" +
+				"and share copied text with it?\n\n")
+		} else {
+			b.WriteString("Allow them to see your screen and control this computer?\n\n")
+		}
 	} else {
 		fmt.Fprintf(&b, "The person connected to this computer wants to send %s.\n\n",
 			describeBatch(p.Files))
