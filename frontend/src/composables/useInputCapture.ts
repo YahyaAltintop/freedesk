@@ -1,4 +1,4 @@
-import { onScopeDispose, watch, type Ref } from 'vue'
+import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue'
 import type { InputMessage } from '@/types/input'
 
 // Browser wheel deltas come in pixels (0), lines (1) or pages (2); scale the
@@ -28,22 +28,45 @@ function mapButton(button: number): number | null {
   }
 }
 
+// What the caller gets back: whether the stage currently has control, and a way
+// to hand it the focus — toolbar buttons steal it on every click.
+export interface InputCapture {
+  // True while input is being forwarded: the session is ready, the video holds
+  // the keyboard focus and the browser window is the active one.
+  controlling: ComputedRef<boolean>
+  // Moves the keyboard focus onto the video, taking control.
+  focus: () => void
+}
+
 // Attaches pointer/keyboard listeners to the video element and forwards them
-// as protocol messages while `active` is true. Coordinates are normalised
-// against the actual (letterboxed) video content, not the element box.
+// as protocol messages. Coordinates are normalised against the actual
+// (letterboxed) video content, not the element box.
 //
-// Everything the viewer holds down is remembered so it can be released when
-// the events that would normally end it can no longer reach us: the window
-// loses focus (Alt+Tab, tab switch), the page is hidden, control is disabled,
-// or the composable is disposed. Otherwise the host would keep the key or
-// button pressed indefinitely.
+// Input is forwarded only while the video itself is focused inside an active
+// window, so a keystroke reaches the remote computer instead of being typed on
+// both machines: click the video to take control, click away (or Alt+Tab) to
+// get the local keyboard back. `enabled` adds the session's own condition on
+// top — there is nowhere to send to before the channel is open.
+//
+// Everything the viewer holds down is remembered so it can be released when the
+// events that would normally end it can no longer reach us: focus moves away,
+// the page is hidden, the session ends, or the composable is disposed.
+// Otherwise the host would keep the key or button pressed indefinitely.
 export function useInputCapture(
   video: Ref<HTMLVideoElement | null>,
   send: (message: InputMessage) => void,
-  active: Ref<boolean>,
-): void {
+  enabled: Ref<boolean>,
+): InputCapture {
   let el: HTMLVideoElement | null = null
   const bound: Array<[EventTarget, string, EventListener]> = []
+
+  // The video holds the DOM focus, which is what decides where a keystroke
+  // goes. Losing the whole window (Alt+Tab) is handled as a release below
+  // rather than as a second condition here: the OS stops delivering input to a
+  // background window anyway, and a window `focus` event that failed to arrive
+  // would otherwise leave control switched off with no way back.
+  const elementFocused = ref(false)
+  const active = computed(() => enabled.value && elementFocused.value)
 
   const heldKeys = new Set<string>()
   const heldButtons = new Set<number>()
@@ -111,10 +134,16 @@ export function useInputCapture(
   }
 
   const onPointerDown = (event: PointerEvent): void => {
+    if (!enabled.value) {
+      return
+    }
+    // Take the focus before the `active` check rather than after it: this click
+    // is how control is acquired, and focus() dispatches its event
+    // synchronously, so the click itself is already forwarded below.
+    el?.focus()
     if (!active.value) {
       return
     }
-    el?.focus()
     const b = mapButton(event.button)
     const c = videoCoords(event, false)
     if (b === null || !c) {
@@ -175,11 +204,17 @@ export function useInputCapture(
     event.preventDefault() // forward right-click instead of opening the browser menu
   }
 
+  // preventDefault keeps the keystroke off this page (no scrolling on Space, no
+  // quick-find on "/") and stopPropagation keeps it out of the rest of the app.
+  // Shortcuts the browser reserves for itself — Ctrl+W, Ctrl+T, F11 — survive
+  // both; only the Keyboard Lock API, which needs fullscreen (see
+  // useFullscreen), can hand those to the host instead.
   const onKeyDown = (event: KeyboardEvent): void => {
     if (!active.value) {
       return
     }
     event.preventDefault()
+    event.stopPropagation()
     // Auto-repeat re-sends the key-down (the host repeats too) but the key is
     // only held once.
     heldKeys.add(event.code)
@@ -191,11 +226,24 @@ export function useInputCapture(
       return
     }
     event.preventDefault()
+    event.stopPropagation()
     heldKeys.delete(event.code)
     send({ t: 'ku', code: event.code })
   }
 
-  const onFocusLost = (): void => {
+  const onElementFocus = (): void => {
+    elementFocused.value = true
+  }
+
+  const onElementBlur = (): void => {
+    elementFocused.value = false
+  }
+
+  // The window went to the background (Alt+Tab, another app) or the tab was
+  // hidden. The video keeps the DOM focus, so control resumes by itself on the
+  // way back; what must not survive is anything still held down, because the
+  // key-up that would end it is being delivered somewhere else now.
+  const onWindowInactive = (): void => {
     releaseAll()
   }
 
@@ -234,6 +282,7 @@ export function useInputCapture(
   function attach(target: HTMLVideoElement): void {
     detach()
     el = target
+    elementFocused.value = document.activeElement === target
     listen(target, 'pointermove', onPointerMove)
     listen(target, 'pointerdown', onPointerDown)
     listen(target, 'pointerup', onPointerUp)
@@ -243,8 +292,9 @@ export function useInputCapture(
     listen(target, 'contextmenu', onContextMenu)
     listen(target, 'keydown', onKeyDown)
     listen(target, 'keyup', onKeyUp)
-    listen(target, 'blur', onFocusLost)
-    listen(window, 'blur', onFocusLost)
+    listen(target, 'focus', onElementFocus)
+    listen(target, 'blur', onElementBlur)
+    listen(window, 'blur', onWindowInactive)
     listen(document, 'visibilitychange', onVisibilityChange)
   }
 
@@ -254,16 +304,23 @@ export function useInputCapture(
       target.removeEventListener(type, handler)
     }
     bound.length = 0
+    elementFocused.value = false
     el = null
   }
 
   watch(video, (value) => (value ? attach(value) : detach()), { immediate: true })
-  // Control switched off (session ending): let go of everything first, while
-  // the channel may still be open. The host releases on its side as well.
+  // Control was lost — focus moved away, the window went to the background, or
+  // the session is ending. Let go of everything while the channel may still be
+  // open; the host releases on its side as well.
   watch(active, (isActive) => {
     if (!isActive) {
       releaseAll()
     }
   })
   onScopeDispose(detach)
+
+  return {
+    controlling: active,
+    focus: () => el?.focus(),
+  }
 }

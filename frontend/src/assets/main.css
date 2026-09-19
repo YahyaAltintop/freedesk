@@ -134,6 +134,14 @@ body {
   background-color: var(--fd-bg);
 }
 
+/* Set by the session view while it is mounted: it pins itself to the viewport,
+   so nothing behind it may scroll. */
+.fd-no-scroll,
+.fd-no-scroll body {
+  height: 100%;
+  overflow: hidden;
+}
+
 /* Anchor targets sit below the sticky header. */
 [id] {
   scroll-margin-top: 5rem;

@@ -7,6 +7,19 @@ declare module '*.vue' {
   export default component
 }
 
+// Keyboard Lock API (https://wicg.github.io/keyboard-lock/): lets a fullscreen
+// page receive the shortcuts the browser normally keeps, so the session view
+// can forward Ctrl+W and friends to the host. Chromium-only and not in
+// TypeScript's DOM library, hence the optional member.
+interface Keyboard {
+  lock(keyCodes?: string[]): Promise<void>
+  unlock(): void
+}
+
+interface Navigator {
+  readonly keyboard?: Keyboard
+}
+
 // Strongly-typed Firebase Web configuration coming from Vite env files.
 // All values are public Firebase Web keys (safe to ship to the browser);
 // access is still gated by Firebase Security Rules.
