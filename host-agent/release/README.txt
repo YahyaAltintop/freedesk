@@ -43,8 +43,9 @@ Files:
   LICENSE.txt         FreeDesk license (MIT)
 
 Limits of this version: Windows 10/11 only, primary monitor only, no audio,
-clipboard sharing is text only, folders cannot be sent (only files), no unattended
-access (someone must click Yes), and some networks (mobile / CGNAT) cannot
-connect directly.
+the clipboard carries text and files but not images or formatting, folders
+cannot be sent (only files), a transfer that is interrupted starts over rather
+than carrying on where it stopped, no unattended access (someone must click
+Yes), and some networks (mobile / CGNAT) cannot connect directly.
 
 Source code and the web page address: see the project's GitHub page.

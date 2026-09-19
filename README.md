@@ -29,7 +29,7 @@ A small, free remote desktop: see and control another Windows PC from your brows
 7. Copying **files** works too: copy them in Explorer on one computer and paste into the FreeDesk page on the other, and they arrive on that computer's clipboard ready for Ctrl+V. Files copied on the remote computer appear in your panel to save — a web page cannot put real files on your own clipboard, so that direction is a download.
 
 ### What it does not do (yet)
-Windows hosts only (viewer runs in any modern browser) · primary monitor only · no audio · clipboard sharing is text only · file transfer and clipboard need host agent 0.3.0 or newer, and only files, not folders · no unattended access (someone must click Yes) · cannot pass UAC prompts or the lock screen · some networks (mobile data, CGNAT) cannot connect directly because there is no relay server.
+Windows hosts only (viewer runs in any modern browser) · primary monitor only · no audio · the clipboard carries text and files, not images or formatting · file transfer and clipboard need host agent 0.3.0 or newer, and only files, never folders · a transfer that is interrupted starts over rather than resuming · no unattended access (someone must click Yes) · cannot pass UAC prompts or the lock screen · some networks (mobile data, CGNAT) cannot connect directly because there is no relay server.
 
 ---
 

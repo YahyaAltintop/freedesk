@@ -14,7 +14,9 @@ The viewer application that runs in the browser (deployed on Firebase Hosting). 
 - Displaying this machine's pairing code on the home page (read from the loopback endpoint of the host agent on the same machine).
 - Resolving the remote computer's 9-digit code (an individual `/hosts/{code}` read) and creating a session + request.
 - Displaying the **video track** received over WebRTC in a `<video>` element.
-- Capturing mouse/keyboard events and forwarding them to the host over the **DataChannel**.
+- Capturing mouse/keyboard events and forwarding them to the host over the **`input` DataChannel**, but only while the video element actually holds the focus — an unfocused page must not type on somebody else's machine.
+- Sending files dropped on the remote screen and saving files the host offers, over the **`file` DataChannel**: written straight to disk through the File System Access API rather than held in memory.
+- Keeping the two clipboards in step: text in both directions, and files pasted into the page forwarded as an ordinary transfer.
 - Cleaning up after itself: everything it writes is armed with `onDisconnect().remove()`.
 
 ### 1.2 Go Host Agent (Host)
@@ -25,7 +27,10 @@ The agent that runs on the remotely controlled Windows machine (`freedesk-host.e
 - Streams its inbox (`/inbox/{uid}`) over Server-Sent Events; **no polling, zero reads while idle.**
 - Every request is approved in a native **Yes/No window** (or `y` on the console); no answer within 45 s = rejected.
 - On approval, establishes the WebRTC connection (as the offerer), captures the screen with ffmpeg and streams it as a **video track**.
-- Applies input events arriving over the **DataChannel** via the Windows API; releases every held key/button when the viewer goes away.
+- Applies input events arriving over the **`input` DataChannel** via the Windows API; releases every held key/button when the viewer goes away.
+- Announces what it can do in a `hello` greeting the moment that channel opens, so the viewer enables features from the advertised capabilities rather than from a version number.
+- Receives files on the **`file` DataChannel** into a fixed `Downloads\FreeDesk` folder — one Yes/No window per batch, never overwriting, and tagged with the Mark of the Web once complete. Sends files back only from a native picker the operator drives.
+- Keeps its clipboard in step with the viewer's while `RC_CLIPBOARD` allows it (`text`, the default, or `off`), skipping anything the copying application marked private.
 
 ### 1.3 Firebase (Backend — serverless)
 - **Authentication:** the **Anonymous** provider only. There are no accounts/passwords; identity exists to satisfy the security rules' `auth != null` condition and for ownership isolation.
@@ -65,7 +70,8 @@ the connection is established only after approval on the host machine.
     │   "Waiting for host approval…"     │                              │     ended + node deleted)
     │                                    │                              │ 6. PeerConnection +
     │                                    │                              │    video track +
-    │                                    │                              │    DataChannel("input")
+    │                                    │                              │    DataChannels "file"
+    │                                    │                              │    and "input"
     │                                    │ 7. write OFFER               │
     │◀───────────────────────────────────│◀─────────────────────────────│
     │ 8. write ANSWER                    │                              │
@@ -74,16 +80,17 @@ the connection is established only after approval on the host machine.
     │◀──────────────────────────────────────────────────────────────────▶│
     │                                                                    │
     │ 10. WebRTC P2P connection established (status = connected)         │
-    │◀═════════════ Video Track (host → viewer) ════════════════════════│
-    │═════════════ DataChannel (viewer → host) ═════════════════════════▶│
+    │◀══════════════════ Video Track (host → viewer) ════════════════════│
+    │◀══════════════ DataChannel "input" — keys and mouse ══════════════▶│
+    │◀══════════ DataChannel "file" — transfers and clipboard ══════════▶│
     │                                                                    │
     │ 11. end: status = ended, /sessions/{id} and the inbox entry deleted │
 ```
 
-**Important:** After step 10, video and input flow entirely P2P. The host keeps a single SSE stream on `/sessions/{id}` open for the life of the session: it carries the answer and the viewer's candidates during negotiation and afterwards acts as the liveness signal (the node disappearing means the viewer is gone).
+**Important:** After step 10, everything — video, input, files and clipboard — flows entirely P2P. The host keeps a single SSE stream on `/sessions/{id}` open for the life of the session: it carries the answer and the viewer's candidates during negotiation and afterwards acts as the liveness signal (the node disappearing means the viewer is gone).
 
 ### 2.3 Direction Decision: Why is the host the "offerer"?
-In WebRTC, the cleanest flow is for the side that adds the media track to generate the offer. Since the **host** produces the video, the host creates the offer and the viewer responds (answer). The host also opens the DataChannel; the viewer receives it via `ondatachannel` and sends input over the same channel (the DataChannel is bidirectional).
+In WebRTC, the cleanest flow is for the side that adds the media track to generate the offer. Since the **host** produces the video, the host creates the offer and the viewer responds (answer). The host also opens both DataChannels, and must: there is no renegotiation anywhere in this design — one offer, one answer, and every channel a session will use exists before the offer is created. The viewer receives them via `ondatachannel`, tells them apart by label, and sends over them (a DataChannel is bidirectional). A viewer therefore cannot add a channel of its own; a new one is a host change plus a capability in the greeting.
 
 ---
 
@@ -144,6 +151,11 @@ Lifetimes:
 - **Orphans:** if both peers die before the viewer armed `onDisconnect`, the session node stays until the 1 h rule lets a client delete it; since nothing can list `/sessions`, such leftovers only cost storage.
 - **Local API:** `127.0.0.1:47800/identity` answers only to the FreeDesk web origins; any other website open on the host gets 403.
 - **UAC / lock screen / multi-monitor:** out of scope in v1 (user-mode agent, primary monitor only).
+- **No resume:** a transfer interrupted by an ICE failure or a reconnect starts over. `offset` is in the message schema from the start but is always 0 today, so adding resume later does not change the contract. The row fails visibly rather than hanging — a transfer that quietly stalls is worse than one that says it stopped.
+- **Transfers widen the no-relay problem (5.1) rather than adding a new one.** Video failing on a symmetric-NAT path is obvious within seconds; a transfer can run for minutes, so the same missing TURN relay is exposed for far longer. Nothing else about a transfer is riskier than the video that is already flowing.
+- **The clipboard sync carries whatever the operator copies.** That is what makes it work without a keystroke to trigger it, and it is a real exposure: anything copied on the host during a session reaches the viewer's browser. Three things bound it — applications that mark content private (every serious password manager does) are skipped entirely, the connection prompt says clipboard sharing is part of what is being approved, and `RC_CLIPBOARD=off` removes the capability from the greeting so the feature does not exist for that run. Contents are never logged; only lengths.
+- **Files on the clipboard are only one-way as files.** A web page cannot write `CF_HDROP`: `ClipboardItem` accepts a short list of MIME types and there is no API that puts real files on the operating system's clipboard. So copying a file on the host and pasting it into the viewer's own Explorer will never work; that direction is offered as a download instead. Folders never reach the page at all — no browser puts them in a drop or a paste.
+- **The operator's attention is the scarce resource.** One question per batch and one question at a time process-wide, so the rate is bounded by the prompt timeout rather than by how fast a viewer can offer.
 
 ### 4.4 Host Agent authentication
 The Go Host Agent does not use the Firebase **Admin SDK**. Instead, an **anonymous** user is created via the **Identity Toolkit REST API** (`accounts:signUp`, no email/password); the database is accessed with this user's **ID token** and the account is deleted with `accounts:delete` at shutdown.
@@ -174,6 +186,14 @@ The Go Host Agent does not use the Firebase **Admin SDK**. Instead, an **anonymo
 | 11 | ICE: public STUN only (no TURN) | No server to run; the config is left open to TURN (see 5.1) |
 | 12 | Approval in a native Yes/No window | No console interaction; silence still means no |
 | 13 | A shared protocol contract under `docs/` | Prevents Frontend/Host version drift |
+| 14 | Files get a **second DataChannel**, rather than sharing the input one | `input` is ordered and reliable: behind 1 MiB of queued file data a mouse move lands ~1.6 s late on a 5 Mbit/s link, which makes remote control unusable |
+| 15 | Text frames are control, binary frames are payload | One discriminator (`IsString`) instead of a header on every chunk; the channel is ordered, so the receiver already knows which file it is on |
+| 16 | Transfers get their own parser instead of more fields on `input.Message` | That struct is decoded for every mouse move; a key reused with a different JSON type would break remote control itself |
+| 17 | The viewer gates on the greeting's `caps`, never on the version string | A later agent can add a capability without the viewer knowing its version, and `0.2.1-dev`-style builds cannot be misread |
+| 18 | One approval window per **batch**, not per file | Twenty windows teach the operator to click Yes without reading, which destroys the only real control in the system |
+| 19 | Fixed destination, never overwrite, `.part` until complete, Mark of the Web | The destination cannot be talked upwards; a half-written installer cannot be run; Windows warns at the moment someone runs what arrived |
+| 20 | Downloads have no Yes/No — the native picker **is** the consent | The viewer can only ask "choose me something"; a prompt in front of the picker carries no information the picker does not, and only adds a click |
+| 21 | Clipboard as a sync, not an interception of Ctrl+C/Ctrl+V | The keystrokes keep being forwarded, so an agent that does not understand the feature still pastes normally instead of losing Ctrl+V entirely |
 
 ### 5.1 ICE / NAT traversal strategy
 This project uses **public STUN only**:
