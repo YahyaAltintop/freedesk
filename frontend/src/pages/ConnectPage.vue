@@ -6,6 +6,9 @@ import { subscribeHost } from '@/services/host.service'
 import { useViewerConnection } from '@/composables/useViewerConnection'
 import { useInputCapture } from '@/composables/useInputCapture'
 import { useFullscreen } from '@/composables/useFullscreen'
+import { useFileTransfer } from '@/composables/useFileTransfer'
+import { useFileDrop } from '@/composables/useFileDrop'
+import TransferPanel from '@/components/TransferPanel.vue'
 import { useServerNow } from '@/composables/useServerNow'
 import { isHostOnline } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
@@ -18,8 +21,18 @@ const props = defineProps<{ hostId: string }>()
 
 const router = useRouter()
 const authStore = useAuthStore()
-const { state, error, remoteStream, dataChannel, inputReady, sessionStatus, connect, disconnect } =
-  useViewerConnection()
+const {
+  state,
+  error,
+  remoteStream,
+  dataChannel,
+  inputReady,
+  fileChannel,
+  fileReady,
+  sessionStatus,
+  connect,
+  disconnect,
+} = useViewerConnection()
 
 const host = ref<Host | null>(null)
 const loadError = ref<string | null>(null)
@@ -50,6 +63,50 @@ function sendInput(message: InputMessage): void {
 const { controlling, focus: focusStage } = useInputCapture(videoEl, sendInput, sessionReady)
 const { isFullscreen, supported: fullscreenSupported, toggle: toggleFullscreen } =
   useFullscreen(stageEl)
+
+// Transfers ride their own channel. An agent too old to offer one leaves
+// `fileReady` false for the whole session, and that is the only way to know:
+// such a host never writes to a channel at all, so there is nothing to ask.
+const transfersAvailable = computed(() => state.value === 'connected' && fileReady.value)
+const { rows, busyCount, failedCount, send, cancel, clearFinished } = useFileTransfer(
+  fileChannel,
+  fileReady,
+)
+// Drops land on the whole stage, not just the video: a file dropped on the
+// toolbar would otherwise navigate the browser away and end the session.
+const { dragging, refusal } = useFileDrop(stageEl, send, transfersAvailable)
+
+const panelOpen = ref(false)
+const fileInputEl = ref<HTMLInputElement | null>(null)
+
+// Shown disabled rather than hidden against an old agent: someone who updated
+// specifically for this is better served by being told why than by finding
+// nothing there.
+const transferTitle = computed(() => {
+  if (transfersAvailable.value) {
+    return 'Send files to the other computer'
+  }
+  const version = host.value?.version ? ` (it runs ${host.value.version})` : ''
+  return `This computer's FreeDesk agent is too old for file transfer${version}. Update it to send files.`
+})
+
+function togglePanel(): void {
+  panelOpen.value = !panelOpen.value
+  if (!panelOpen.value) {
+    focusStage()
+  }
+}
+
+function pickFiles(): void {
+  fileInputEl.value?.click()
+}
+
+function onPicked(event: Event): void {
+  const input = event.target as HTMLInputElement
+  send(Array.from(input.files ?? []))
+  // Cleared so choosing the same file twice in a row still fires a change.
+  input.value = ''
+}
 
 // Bind the remote media stream to the <video> element once it arrives.
 watch(remoteStream, (stream) => {
@@ -196,6 +253,21 @@ onBeforeUnmount(() => {
       </div>
       <div class="d-flex align-items-center gap-2">
         <button
+          class="btn btn-outline-light btn-sm text-nowrap"
+          type="button"
+          :class="{ active: panelOpen }"
+          :disabled="!transfersAvailable"
+          :title="transferTitle"
+          @mousedown.prevent
+          @click="togglePanel"
+        >
+          Files
+          <span v-if="busyCount" class="badge rounded-pill text-bg-info ms-1">{{ busyCount }}</span>
+          <span v-else-if="failedCount" class="badge rounded-pill text-bg-danger ms-1">
+            {{ failedCount }}
+          </span>
+        </button>
+        <button
           v-if="fullscreenSupported"
           class="btn btn-outline-light btn-sm text-nowrap"
           type="button"
@@ -267,7 +339,36 @@ onBeforeUnmount(() => {
           the Windows key always stay on this computer.
         </div>
       </template>
+
+      <!-- Drop target. pointer-events:none so it can never swallow the click
+           that takes control, the same rule the hint above follows. -->
+      <div
+        v-if="dragging"
+        class="fd-drop position-absolute d-flex align-items-center justify-content-center"
+      >
+        <div class="fd-drop-card text-center px-4 py-3">
+          <p class="fd-drop-title mb-1">Drop files to send them</p>
+          <p class="fd-drop-sub mb-0">
+            They are saved on the other computer only after that person accepts.
+          </p>
+        </div>
+      </div>
+
+      <!-- Inside the stage, so it stays visible in fullscreen — which is
+           exactly when someone is most likely to want to send something. -->
+      <TransferPanel
+        v-if="panelOpen"
+        class="fd-panel-anchor position-absolute end-0 bottom-0 m-2 m-md-3"
+        :rows="rows"
+        :refusal="refusal"
+        @close="togglePanel"
+        @pick="pickFiles"
+        @cancel="cancel"
+        @clear="clearFinished"
+      />
     </div>
+
+    <input ref="fileInputEl" type="file" multiple class="d-none" @change="onPicked" />
   </div>
 </template>
 
@@ -318,5 +419,30 @@ onBeforeUnmount(() => {
   max-width: 90%;
   background-color: rgba(0, 0, 0, 0.6);
   pointer-events: none; /* never swallow the click that takes control */
+}
+
+.fd-drop {
+  inset: 0;
+  pointer-events: none; /* same reason as the hint */
+  background-color: rgba(11, 13, 20, 0.72);
+  border: 2px dashed rgba(255, 255, 255, 0.45);
+  border-radius: var(--fd-radius-sm);
+}
+
+.fd-drop-title {
+  font-family: var(--fd-font-mono);
+  font-weight: 700;
+  font-size: 1rem;
+  color: #fff;
+}
+
+.fd-drop-sub {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Above the hint, which also sits at the bottom of the stage. */
+.fd-panel-anchor {
+  z-index: 2;
 }
 </style>
