@@ -2,7 +2,7 @@
 
 This document defines the contract that must be followed exactly between the **Frontend (Viewer)** and the **Host Agent**:
 1. The shape, ordering and cleanup of the Realtime Database nodes used for discovery, requests and WebRTC signaling.
-2. The format of the input (mouse/keyboard) messages sent over the DataChannel after the connection is established.
+2. The DataChannels opened once the connection is established, and the messages carried on them.
 
 Both sides are coded against this document. **If this contract changes, both sides must be updated together.**
 
@@ -57,7 +57,9 @@ The ICE candidate field names match the browser's `RTCIceCandidate` JSON output 
              While asking, the host watches the same stream: the node disappearing
              or status becoming "ended" means the viewer withdrew → prompt closes.
              No/timeout → status = "ended", then /sessions/{id} is deleted
-5.  host   : sets up the PeerConnection, adds the video track + DataChannel("input")
+5.  host   : sets up the PeerConnection, adds the video track and creates
+             DataChannel("file") then DataChannel("input") — every channel the
+             session will use must exist before the offer (§2.1)
 6.  host   : generates the OFFER → writes /sessions/{id}/offer
 6a. host   : pushes its local ICE candidates to /hostCandidates
 7.  viewer : receives the offer → setRemoteDescription
@@ -91,18 +93,63 @@ The ICE candidate field names match the browser's `RTCIceCandidate` JSON output 
 
 ---
 
-## 2. DataChannel — Input Protocol
+## 2. DataChannels
 
-### 2.1 Channel
-- **Label:** `input`
-- **Opening side:** the host (offerer). The viewer receives it via `ondatachannel`.
-- **Direction:** viewer → host (input events). The channel is technically bidirectional; in v1 only viewer→host is used.
-- **Configuration:** `ordered: true` (reliable, ordered).
-- **Encoding:** each event is a single **JSON text** frame (UTF-8).
+### 2.1 Channels
+Both channels are created by the **host** (the offerer) and reach the viewer via
+`ondatachannel`. Both are `ordered: true` (reliable, ordered).
 
-> **Versioning:** this protocol is version **1**. When the channel opens, the client may send `{ "t": "hello", "v": 1 }` as the first message (the host may ignore it, but it is reserved for forward compatibility).
+| Label | Carries | Encoding |
+|-------|---------|----------|
+| `input` | Input events and small per-session control messages | JSON **text** frames (UTF-8) |
+| `file` | File transfers, both directions | JSON **text** frames for control, raw **binary** frames for payload |
 
-### 2.2 Message types
+**Every channel a session will use must be created before the offer.** There is
+no renegotiation: one offer/answer completes and the session runs on what it
+established. A viewer cannot add a channel — it is the answerer, and a channel
+it created would need a second offer that the signaling schema has no room for.
+
+**Routing is by label, never by arrival order.** The two channels are announced
+on separate SCTP streams, which are not ordered against each other. A receiver
+that assigns "whichever arrived last" would put input on the wrong channel.
+
+Binary and text frames on `file` are told apart by the transport's own flag —
+`DataChannelMessage.IsString` in pion, `typeof event.data === 'string'` in the
+browser. A viewer must set `binaryType = 'arraybuffer'` explicitly: the spec's
+default is `"blob"`.
+
+> **Why a separate channel for files?** One reliable ordered channel delivers in
+> send order, so a mouse move queued behind a file chunk waits for it. At a few
+> hundred KB of queue that is already hundreds of milliseconds of input lag for
+> the whole transfer. Note the split is not total: on the host side pion's send
+> queue is per-association, not per-stream, so a host→viewer control frame still
+> queues behind pending payload. Keeping the send queue short (see §5) is what
+> bounds that, not the channel split.
+
+### 2.2 Versioning and capability negotiation
+This protocol is version **2**.
+
+- The **host** sends `{ "t": "hello", "v": 2, "caps": [...], "agent": "<version>" }`
+  on the `input` channel as soon as it opens.
+- A viewer that receives no `hello` within **2000 ms** MUST treat the host as
+  version 1 and disable everything outside §3. **That silence is the signal**: a
+  version-1 host never writes to the channel at all, so there is nothing else to
+  detect it by.
+- Features are gated on **`caps`, not on the version number**, so later versions
+  stay additive.
+
+> **Unknown `t` values MUST be ignored on both sides.** They are never an error
+> and never close the channel. This is what lets a later version add message
+> types without breaking either peer — and it is why a new viewer cannot tell a
+> feature is missing by sending a message and waiting for a complaint.
+
+The viewer and the host update on different schedules: the web app is served
+fresh, the agent is a file someone downloaded. **Release the web app before the
+agent**, so a viewer that predates a change never meets a host that has it.
+
+## 3. Input protocol (`input` channel)
+
+### 3.1 Message types
 All messages contain a `t` (type) field. Coordinates are **normalized**: `x` and `y` are in the range `[0.0, 1.0]` relative to the captured screen frame (top-left is `0,0`).
 
 | `t` | Meaning | Fields | Example |
@@ -113,7 +160,7 @@ All messages contain a `t` (type) field. Coordinates are **normalized**: `x` and
 | `w` | Scroll (wheel) | `dx`, `dy` | `{"t":"w","dx":0,"dy":-120}` |
 | `kd` | Key down | `code` | `{"t":"kd","code":"KeyA"}` |
 | `ku` | Key up | `code` | `{"t":"ku","code":"KeyA"}` |
-| `hello` | Handshake (opt.) | `v` | `{"t":"hello","v":1}` |
+| `hello` | Capability handshake, host → viewer (§2.2) | `v`, `caps`, `agent` | `{"t":"hello","v":2,"caps":["file.send"],"agent":"0.3.0"}` |
 
 #### Mouse button codes (`b`)
 | Value | Button |
@@ -132,13 +179,13 @@ All messages contain a `t` (type) field. Coordinates are **normalized**: `x` and
 - **Modifier keys are separate events.** For example, for an uppercase `A`: `kd ShiftLeft` → `kd KeyA` → `ku KeyA` → `ku ShiftLeft`. There is no separate "modifiers" field; the host tracks key state from the events, just like a real keyboard.
 - The host side maps `code` → Windows virtual key code.
 
-### 2.3 Held-state rule (both sides)
+### 3.2 Held-state rule (both sides)
 Both peers remember what is currently pressed.
 - The **viewer** sends `ku` for every held key (most recent first) and `mu` for every held button when its window loses focus, the page is hidden, control is switched off, or the page is torn down; it uses pointer capture so a button released outside the video still produces `mu`.
 - The **host** releases everything it still holds when the DataChannel closes or the session ends, regardless of what the viewer managed to send.
 A key or button must never remain pressed on the host after the viewer is gone.
 
-### 2.4 Coordinate conversion (host side)
+### 3.3 Coordinate conversion (host side)
 Normalized coordinates are an **exact** match for Windows `SendInput`:
 ```
 absX = round(x * 65535)
@@ -147,7 +194,8 @@ absY = round(y * 65535)
 ```
 This lets the host position absolutely without knowing the screen resolution. Multi-monitor support is out of scope for v1 (the primary screen is assumed; the coordinates map to the primary display).
 
-### 2.5 Design notes
+## 4. Design notes
 - **Why normalized coordinates?** The viewer's window and the host's screen are at different resolutions; `[0,1]` makes both sides resolution-independent.
 - **Why `code` (not key)?** Remote control requires physical key mapping; `code` is independent of keyboard layout and maps reliably to a virtual key.
-- **Why a single reliable channel?** For v1, simplicity and correctness take priority. Later, a separate `ordered:false, maxRetransmits:0` (unreliable) channel for high-frequency `m` events could be considered as an optimization.
+- **Why keep `input` reliable and ordered?** Correctness first: a dropped `ku` leaves a key stuck down on the host, and a reordered `md`/`mu` pair turns a click into a drag. A separate `ordered:false, maxRetransmits:0` channel for high-frequency `m` events remains a possible optimisation.
+- **Why does the host announce `hello`, rather than the viewer asking?** The viewer cannot ask a question a version-1 host would answer — it ignores everything it does not recognise, silently. An unprompted announce from the host costs one frame and needs no round trip.

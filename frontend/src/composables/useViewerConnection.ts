@@ -1,5 +1,11 @@
 import { ref, shallowRef } from 'vue'
-import { CONNECTION_TIMEOUT_MS, DISCONNECT_GRACE_MS, ICE_SERVERS } from '@/constants/webrtc'
+import {
+  CONNECTION_TIMEOUT_MS,
+  DATA_CHANNEL_FILE,
+  DATA_CHANNEL_INPUT,
+  DISCONNECT_GRACE_MS,
+  ICE_SERVERS,
+} from '@/constants/webrtc'
 import {
   createSession,
   removeSession,
@@ -21,7 +27,8 @@ const TIMEOUT_MESSAGE =
 // Drives the viewer (answerer) side of a WebRTC connection: it creates the
 // session (plus the host's inbox entry), builds the RTCPeerConnection, and
 // runs the offer → answer → ICE exchange. Video surfaces via `remoteStream`;
-// the host's input DataChannel arrives via `ondatachannel`. `sessionStatus`
+// the host's DataChannels arrive via `ondatachannel`, routed by label.
+// `sessionStatus`
 // mirrors the RTDB lifecycle so the UI can narrate the host-approval step.
 export function useViewerConnection() {
   const state = ref<ConnectionState>('idle')
@@ -29,6 +36,11 @@ export function useViewerConnection() {
   const remoteStream = shallowRef<MediaStream | null>(null)
   const dataChannel = shallowRef<RTCDataChannel | null>(null)
   const inputReady = ref(false)
+  // The file channel is separate so a transfer never queues ahead of a mouse
+  // move. A host too old to offer it simply leaves `fileReady` false, which is
+  // how the viewer knows transfers are unavailable.
+  const fileChannel = shallowRef<RTCDataChannel | null>(null)
+  const fileReady = ref(false)
   const sessionStatus = ref<SessionStatus | null>(null)
 
   let pc: RTCPeerConnection | null = null
@@ -69,14 +81,37 @@ export function useViewerConnection() {
       pc.ontrack = (event) => {
         remoteStream.value = event.streams[0] ?? null
       }
+      // The host offers several channels; each one is claimed by its label.
+      // Assigning whichever arrives last would leave input on the wrong
+      // channel, and the two are announced on separate SCTP streams with no
+      // ordering between them.
       pc.ondatachannel = (event) => {
         const channel = event.channel
-        dataChannel.value = channel
-        channel.onopen = () => {
-          inputReady.value = true
-        }
-        channel.onclose = () => {
-          inputReady.value = false
+        switch (channel.label) {
+          case DATA_CHANNEL_INPUT:
+            dataChannel.value = channel
+            channel.onopen = () => {
+              inputReady.value = true
+            }
+            channel.onclose = () => {
+              inputReady.value = false
+            }
+            break
+          case DATA_CHANNEL_FILE:
+            // Chunks must arrive as ArrayBuffers: the default is "blob" in the
+            // spec and in Firefox, which turns every chunk into an async read.
+            channel.binaryType = 'arraybuffer'
+            fileChannel.value = channel
+            channel.onopen = () => {
+              fileReady.value = true
+            }
+            channel.onclose = () => {
+              fileReady.value = false
+            }
+            break
+          default:
+            // A newer host offering something this viewer does not know about.
+            break
         }
       }
       pc.onicecandidate = (event) => {
@@ -228,6 +263,8 @@ export function useViewerConnection() {
     remoteStream.value = null
     dataChannel.value = null
     inputReady.value = false
+    fileChannel.value = null
+    fileReady.value = false
     if (state.value !== 'failed') {
       state.value = finalState
     }
@@ -254,6 +291,8 @@ export function useViewerConnection() {
     error.value = null
     dataChannel.value = null
     inputReady.value = false
+    fileChannel.value = null
+    fileReady.value = false
     sessionStatus.value = null
     host = null
     sessionId = null
@@ -303,5 +342,16 @@ export function useViewerConnection() {
     }
   }
 
-  return { state, error, remoteStream, dataChannel, inputReady, sessionStatus, connect, disconnect }
+  return {
+    state,
+    error,
+    remoteStream,
+    dataChannel,
+    inputReady,
+    fileChannel,
+    fileReady,
+    sessionStatus,
+    connect,
+    disconnect,
+  }
 }

@@ -159,16 +159,29 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 	inputHandler := input.NewHandler()
 
 	hooks := webrtc.Hooks{
+		// One callback per channel of the session; what a channel carries is
+		// decided by its label, never by arrival order.
 		OnDataChannel: func(dc *pion.DataChannel) {
 			dc.OnOpen(func() {
 				log.Printf("[session] %s: DataChannel '%s' opened", req.ID, dc.Label())
 			})
-			dc.OnMessage(func(msg pion.DataChannelMessage) {
-				inputHandler.Handle(msg.Data)
-			})
-			dc.OnClose(func() {
-				inputHandler.ReleaseAll()
-			})
+			switch dc.Label() {
+			case webrtc.InputChannelLabel:
+				dc.OnMessage(func(msg pion.DataChannelMessage) {
+					// Input events are JSON text frames. A binary frame here is
+					// not something this channel carries, and feeding it to a
+					// JSON parser would only fail silently.
+					if msg.IsString {
+						inputHandler.Handle(msg.Data)
+					}
+				})
+				dc.OnClose(func() {
+					inputHandler.ReleaseAll()
+				})
+			case webrtc.FileChannelLabel:
+				// Offered so the viewer can tell this agent supports transfers;
+				// nothing reads it yet.
+			}
 		},
 		OnState: func(st pion.PeerConnectionState) {
 			log.Printf("[session] %s: state=%s", req.ID, st.String())

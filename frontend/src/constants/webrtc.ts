@@ -14,3 +14,10 @@ export const CONNECTION_TIMEOUT_MS = 60_000
 // consent lapse) and recovers by itself; wait this long before treating it as
 // the end of the session.
 export const DISCONNECT_GRACE_MS = 5_000
+
+// DataChannel labels (docs/PROTOCOL.md §2). Both are created by the host
+// before the offer — this codebase never renegotiates, so a channel that does
+// not exist by then cannot be added later. The viewer routes on these labels
+// and ignores anything else a newer host might offer.
+export const DATA_CHANNEL_INPUT = 'input'
+export const DATA_CHANNEL_FILE = 'file'

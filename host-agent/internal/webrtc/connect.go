@@ -11,14 +11,34 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
 )
 
-// inputChannelLabel is the DataChannel that carries mouse/keyboard input
-// (created by the host/offerer; used from Phase 6).
-const inputChannelLabel = "input"
+const (
+	// InputChannelLabel carries mouse/keyboard input and the small control
+	// messages that go with a session (viewer → host, plus the host's hello).
+	InputChannelLabel = "input"
+	// FileChannelLabel carries file transfers in both directions: JSON control
+	// frames and raw binary chunks. File bytes get a channel of their own so a
+	// transfer cannot queue ahead of a mouse move on the reliable, ordered
+	// input channel and make remote control unusable for its duration.
+	FileChannelLabel = "file"
+)
+
+// hostChannelLabels are created, in this order, before the offer. There is no
+// renegotiation anywhere in this codebase, so every channel a session will ever
+// use has to exist by the time the offer is built.
+//
+// "input" is created LAST on purpose. A viewer from before the file channel
+// existed assigns every channel it is offered to its single input reference,
+// so the last one to arrive is the one it keeps. Channel announcements travel
+// on separate SCTP streams and are not ordered against each other, so this is
+// defence in depth rather than a guarantee: the actual protection is releasing
+// the web app before the agent that offers two channels.
+var hostChannelLabels = []string{FileChannelLabel, InputChannelLabel}
 
 // Hooks lets the caller observe the connection without owning negotiation.
 type Hooks struct {
-	// OnDataChannel receives the input channel: the host's own channel for the
-	// offerer, or the remotely-created channel for the answerer.
+	// OnDataChannel receives each DataChannel of the session: the host's own
+	// channels for the offerer, or the remotely-created ones for the answerer.
+	// It fires once per channel, so callers dispatch on dc.Label().
 	OnDataChannel func(*pion.DataChannel)
 	// OnState is invoked on every peer-connection state transition.
 	OnState func(pion.PeerConnectionState)
@@ -118,12 +138,14 @@ func Connect(ctx context.Context, role signaling.Role, transport signaling.Trans
 
 func negotiate(ctx context.Context, pc *pion.PeerConnection, role signaling.Role, transport signaling.Transport, hooks Hooks) error {
 	if role == signaling.Host {
-		dc, err := pc.CreateDataChannel(inputChannelLabel, nil)
-		if err != nil {
-			return err
-		}
-		if hooks.OnDataChannel != nil {
-			hooks.OnDataChannel(dc)
+		for _, label := range hostChannelLabels {
+			dc, err := pc.CreateDataChannel(label, nil)
+			if err != nil {
+				return err
+			}
+			if hooks.OnDataChannel != nil {
+				hooks.OnDataChannel(dc)
+			}
 		}
 
 		offer, err := pc.CreateOffer(nil)

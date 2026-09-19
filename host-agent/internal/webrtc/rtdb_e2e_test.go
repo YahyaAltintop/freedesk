@@ -74,7 +74,13 @@ func TestConnectOverRTDBEmulator(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		hostPC, hostErr = Connect(ctx, signaling.Host, hostT, DefaultConfig(), Hooks{
+			// A session offers several channels; this test is about the
+			// signaling round trip over RTDB, so it watches just one of them.
+			// TestConnectInMemory is where the full set is covered.
 			OnDataChannel: func(dc *pion.DataChannel) {
+				if dc.Label() != InputChannelLabel {
+					return
+				}
 				hostDC = dc
 				dc.OnOpen(func() { close(hostOpen) })
 			},
@@ -84,6 +90,9 @@ func TestConnectOverRTDBEmulator(t *testing.T) {
 		defer wg.Done()
 		viewerPC, viewerErr = Connect(ctx, signaling.Viewer, viewerT, DefaultConfig(), Hooks{
 			OnDataChannel: func(dc *pion.DataChannel) {
+				if dc.Label() != InputChannelLabel {
+					return
+				}
 				dc.OnOpen(func() { close(viewerOpen) })
 				dc.OnMessage(func(msg pion.DataChannelMessage) { viewerMsg <- string(msg.Data) })
 			},
