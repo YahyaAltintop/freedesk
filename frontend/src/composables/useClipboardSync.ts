@@ -41,6 +41,7 @@ export function useClipboardSync(
   channel: Ref<RTCDataChannel | null>,
   enabled: Ref<boolean>,
   focused: Ref<boolean>,
+  onPastedFiles?: (files: File[]) => void,
 ): ClipboardSync {
   const pending = ref<string | null>(null)
 
@@ -69,6 +70,15 @@ export function useClipboardSync(
 
   const onPaste = (event: ClipboardEvent): void => {
     if (!enabled.value) {
+      return
+    }
+    // Files copied in Explorer arrive here as real File objects. They go
+    // through the ordinary transfer path — one prompt, the same size limits
+    // and the same sanitising — and the host puts them on its clipboard once
+    // they are saved, so a Ctrl+V over there pastes them.
+    const files = Array.from(event.clipboardData?.files ?? []).filter((f) => f.size > 0)
+    if (files.length > 0 && onPastedFiles) {
+      onPastedFiles(files)
       return
     }
     const text = event.clipboardData?.getData('text/plain') ?? ''

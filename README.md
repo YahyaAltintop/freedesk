@@ -26,6 +26,7 @@ A small, free remote desktop: see and control another Windows PC from your brows
 4. To send files, drag them onto the remote screen (or use **Files**). The other person is asked once per batch, and accepted files land in their `Downloads\FreeDesk` folder — nothing is ever overwritten.
 5. To receive files, press **Files → Get files…**. A file picker opens on the other computer; whatever that person chooses appears in your panel with a **Save** button.
 6. Text you copy is shared both ways while you are connected, so Ctrl+C on one computer and Ctrl+V on the other just works. The other person is told this before they accept, and they can turn it off with `RC_CLIPBOARD=off`.
+7. Copying **files** works too: copy them in Explorer on one computer and paste into the FreeDesk page on the other, and they arrive on that computer's clipboard ready for Ctrl+V. Files copied on the remote computer appear in your panel to save — a web page cannot put real files on your own clipboard, so that direction is a download.
 
 ### What it does not do (yet)
 Windows hosts only (viewer runs in any modern browser) · primary monitor only · no audio · clipboard sharing is text only · file transfer and clipboard need host agent 0.3.0 or newer, and only files, not folders · no unattended access (someone must click Yes) · cannot pass UAC prompts or the lock screen · some networks (mobile data, CGNAT) cannot connect directly because there is no relay server.

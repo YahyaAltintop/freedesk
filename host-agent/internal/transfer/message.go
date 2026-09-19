@@ -97,6 +97,10 @@ type Msg struct {
 	Offset int64  `json:"offset,omitempty"`
 	Dir    string `json:"dir,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// Clip marks a batch the viewer pasted rather than dropped. Once it is
+	// saved the host also puts it on its own clipboard, so the operator can
+	// paste it in Explorer.
+	Clip bool `json:"clip,omitempty"`
 }
 
 // TotalSize is what the batch claims to add up to.

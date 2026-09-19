@@ -98,6 +98,7 @@ const { pending: clipboardPending, copyPending } = useClipboardSync(
   fileChannel,
   clipboardShared,
   controlling,
+  (files) => send(files, true),
 )
 
 async function takeClipboard(): Promise<void> {

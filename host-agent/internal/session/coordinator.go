@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -233,6 +234,18 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 			// having without it.
 			log.Printf("[session] %s: clipboard sharing unavailable: %v", req.ID, err)
 		}
+	}
+	if clip != nil {
+		// Files the operator copies are offered to the viewer the same way the
+		// file picker's are: names and sizes only, with nothing read until the
+		// viewer asks for it.
+		var clipOffer atomic.Uint64
+		clip.OnFiles(func(paths []string) {
+			transfers.OfferFiles(fmt.Sprintf("clip-%d", clipOffer.Add(1)), paths)
+		})
+		// And files the viewer pastes go on the operator's clipboard once they
+		// are safely saved, so Ctrl+V in Explorer works.
+		transfers.OnPasted(clip.PutFiles)
 	}
 
 	hooks := webrtc.Hooks{

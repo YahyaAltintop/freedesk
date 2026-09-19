@@ -22,7 +22,7 @@ export interface FileMeta {
 
 // Outbound: what this viewer sends.
 export type TransferOutbound =
-  | { t: 'f-offer'; id: string; dir: TransferDirection; files: FileMeta[] }
+  | { t: 'f-offer'; id: string; dir: TransferDirection; files: FileMeta[]; clip?: boolean }
   | { t: 'f-request'; id: string }
   | { t: 'f-accept'; id: string; index?: number }
   | { t: 'f-done'; id: string; index: number }

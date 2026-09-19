@@ -45,6 +45,11 @@ type receiving struct {
 	names []string // sanitised, in offer order
 	sizes []int64  // as declared
 
+	// clip marks a batch the viewer pasted: once it is all saved the host puts
+	// it on its own clipboard so the operator can paste it in Explorer.
+	clip  bool
+	saved []string // final paths, in order, for that clipboard hand-off
+
 	index    int // which file of the batch
 	file     *os.File
 	path     string // final path, without the .part suffix
@@ -76,6 +81,9 @@ type Session struct {
 	// low is signalled when the send queue drains past the low-water mark.
 	low chan struct{}
 
+	// onPasted is called with the saved paths once a pasted batch completes.
+	onPasted func([]string)
+
 	mu      sync.Mutex
 	rx      *receiving
 	tx      *sending
@@ -103,6 +111,10 @@ func NewSession(ctx context.Context, approver Approver, picker Picker, logf func
 
 // Root is the folder accepted files are written to.
 func (s *Session) Root() string { return s.dest.Root() }
+
+// OnPasted registers what to do with a batch the viewer pasted, once every
+// file of it is safely on disk. Called with the final paths, in offer order.
+func (s *Session) OnPasted(fn func(paths []string)) { s.onPasted = fn }
 
 // Attach binds the channel this session will talk over.
 func (s *Session) Attach(ch Channel) {
@@ -198,7 +210,7 @@ func (s *Session) offered(m Msg) {
 	for i, f := range m.Files {
 		sizes[i] = f.Size
 	}
-	if !s.beginBatch(m.ID, names, sizes) {
+	if !s.beginBatch(m.ID, names, sizes, m.Clip) {
 		s.send(s.takeFailure(Reject(m.ID, ReasonBusy)))
 		return
 	}
@@ -249,13 +261,13 @@ func (s *Session) withinSessionLimits(count int, size int64) bool {
 }
 
 // beginBatch opens the first file of an accepted batch.
-func (s *Session) beginBatch(id string, names []string, sizes []int64) bool {
+func (s *Session) beginBatch(id string, names []string, sizes []int64, clip bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.rx != nil {
 		return false
 	}
-	s.rx = &receiving{id: id, names: names, sizes: sizes}
+	s.rx = &receiving{id: id, names: names, sizes: sizes, clip: clip}
 	if fail := s.openLocked(); fail != nil {
 		s.failed = fail
 		return false
@@ -349,11 +361,18 @@ func (s *Session) finishFile() {
 		return
 	}
 	rx.file = nil
+	rx.saved = append(rx.saved, rx.path)
 	s.files++
 	s.bytes += size
 
-	var fail *Msg
+	var (
+		fail   *Msg
+		pasted []string
+	)
 	if rx.index+1 >= len(rx.names) {
+		if rx.clip {
+			pasted = rx.saved
+		}
 		s.rx = nil
 	} else {
 		rx.index++
@@ -365,6 +384,9 @@ func (s *Session) finishFile() {
 	s.send(Msg{T: TypeDone, ID: id, Index: index})
 	if fail != nil {
 		s.send(*fail)
+	}
+	if len(pasted) > 0 && s.onPasted != nil {
+		s.onPasted(pasted)
 	}
 }
 

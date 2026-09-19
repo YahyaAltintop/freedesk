@@ -285,6 +285,35 @@ Normative host requirements:
   the one part of a session that reads something of the operator's while they
   use their own machine, rather than only doing what they can watch on screen.
 
+### 5.1 Files on the clipboard
+
+Copying files is not a separate flow. It reuses §4 in both directions, which is
+what gives it the approval prompt, the name sanitising, the size caps and the
+never-overwrite rule for free.
+
+**Viewer → host.** Files pasted in the browser arrive as ordinary `File`
+objects, so they go out as a normal `f-offer` with `dir: "up"` and
+**`clip: true`**. The host saves them exactly as it saves a dropped batch, and
+then *also* puts them on its own clipboard, so the operator can paste them in
+Explorer. Because they live in the downloads folder rather than anywhere
+temporary, they are still there when the paste happens — Windows reads the
+bytes at paste time, not at copy time.
+
+The host does **not** inject the paste itself. A transfer can take minutes, and
+firing Ctrl+V into whatever window happens to be focused when it finishes is
+surprising and occasionally destructive.
+
+**Host → viewer.** Files the operator copies become an ordinary `f-offer` with
+`dir: "down"` — the same message the file picker produces. Only names and sizes
+are sent; nothing is read until the viewer accepts a file.
+
+> **What cannot work, in any browser.** A web page cannot put real files on the
+> operating system's clipboard: `ClipboardItem` accepts a short list of MIME
+> types and there is no API that writes `CF_HDROP`. So *copy in the remote
+> Explorer, paste in the local one* will never work, and the viewer presents
+> that direction as a download instead. Folders are also out — the browser hands
+> over files from a paste, never directory contents.
+
 ## 6. Design notes
 - **Why normalized coordinates?** The viewer's window and the host's screen are at different resolutions; `[0,1]` makes both sides resolution-independent.
 - **Why `code` (not key)?** Remote control requires physical key mapping; `code` is independent of keyboard layout and maps reliably to a virtual key.

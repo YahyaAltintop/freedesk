@@ -4,6 +4,9 @@ package clipboard
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -107,6 +110,74 @@ func TestOrdinaryTextIsNotExcluded(t *testing.T) {
 		}
 		if b.Excluded() {
 			t.Fatal("ordinary text was reported as excluded from sharing")
+		}
+	})
+}
+
+// CF_HDROP is what Explorer puts on the clipboard when you copy a file, and
+// what it reads when you paste one. Getting the DROPFILES header wrong shows up
+// as "paste does nothing", so both directions are checked here.
+func TestFilesRoundTripThroughTheClipboard(t *testing.T) {
+	dir := t.TempDir()
+	var want []string
+	for _, name := range []string{"one.txt", "two with spaces.pdf", "üç.bin"} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, p)
+	}
+
+	onThread(t, func(b Board) {
+		if err := b.WriteFiles(want); err != nil {
+			if errors.Is(err, ErrBusy) {
+				t.Skip("another process is holding the clipboard")
+			}
+			t.Fatalf("WriteFiles: %v", err)
+		}
+		got, ok, err := b.ReadFiles()
+		if err != nil {
+			t.Fatalf("ReadFiles: %v", err)
+		}
+		if !ok {
+			t.Fatal("no files on the clipboard right after writing some")
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("read back %q, expected %q", got, want)
+		}
+	})
+}
+
+// Text and files are different formats: putting files there must not look like
+// text, or the text poller would send a path list to the viewer.
+func TestFilesAndTextDoNotMixUp(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	onThread(t, func(b Board) {
+		if err := b.WriteFiles([]string{p}); err != nil {
+			t.Skipf("could not write files: %v", err)
+		}
+		if _, ok, _ := b.ReadText(); ok {
+			t.Fatal("a file copy was also reported as text")
+		}
+
+		if err := b.WriteText("just text"); err != nil {
+			t.Skipf("could not write text: %v", err)
+		}
+		if _, ok, _ := b.ReadFiles(); ok {
+			t.Fatal("a text copy was also reported as files")
+		}
+	})
+}
+
+// An empty write is a no-op rather than an error, so callers do not have to
+// guard every call.
+func TestWriteFilesWithNothingIsHarmless(t *testing.T) {
+	onThread(t, func(b Board) {
+		if err := b.WriteFiles(nil); err != nil {
+			t.Fatalf("WriteFiles(nil): %v", err)
 		}
 	})
 }

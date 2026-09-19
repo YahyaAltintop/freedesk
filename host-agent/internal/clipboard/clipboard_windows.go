@@ -300,3 +300,145 @@ func pumpMessages() {
 		procDispatchMessage.Call(uintptr(unsafe.Pointer(&m)))
 	}
 }
+
+// --- files (CF_HDROP) -------------------------------------------------------
+
+const (
+	cfHDrop = 15
+
+	// dropEffectCopy tells a paste target to copy rather than move. Without it
+	// some targets choose move, which would delete the very files we offered.
+	dropEffectCopy = 2
+)
+
+var (
+	shell32           = windows.NewLazySystemDLL("shell32.dll")
+	procDragQueryFile = shell32.NewProc("DragQueryFileW")
+
+	// fmtPreferredDropEffect is registered on first use, like the privacy
+	// formats above.
+	fmtPreferredDropEffect uint32
+)
+
+// dropFiles is the DROPFILES header CF_HDROP data begins with. 20 bytes on
+// both 32- and 64-bit, with no padding, so the field order is load bearing.
+type dropFiles struct {
+	pFiles uint32 // byte offset of the path list from the start of this struct
+	x, y   int32  // drop point, unused for a clipboard paste
+	fNC    int32  // non-client area flag
+	fWide  int32  // 1 = the paths are UTF-16
+}
+
+func (b *winBoard) ReadFiles() ([]string, bool, error) {
+	if !available(cfHDrop) {
+		return nil, false, nil
+	}
+	if err := b.open(); err != nil {
+		return nil, false, err
+	}
+	defer b.close()
+
+	h, _, _ := procGetClipboardData.Call(cfHDrop)
+	if h == 0 {
+		return nil, false, nil
+	}
+	// DragQueryFile with 0xFFFFFFFF asks how many files there are.
+	count, _, _ := procDragQueryFile.Call(h, ^uintptr(0), 0, 0)
+	if count == 0 {
+		return nil, false, nil
+	}
+
+	paths := make([]string, 0, count)
+	for i := range int(count) {
+		need, _, _ := procDragQueryFile.Call(h, uintptr(i), 0, 0)
+		if need == 0 {
+			continue
+		}
+		buf := make([]uint16, need+1)
+		procDragQueryFile.Call(h, uintptr(i), uintptr(unsafe.Pointer(&buf[0])), need+1)
+		if p := windows.UTF16ToString(buf); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, len(paths) > 0, nil
+}
+
+func (b *winBoard) WriteFiles(paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	// The path list: every path NUL-terminated, then one more NUL to close it.
+	var list []uint16
+	for _, p := range paths {
+		utf16, err := windows.UTF16FromString(p)
+		if err != nil {
+			return err
+		}
+		list = append(list, utf16...)
+	}
+	list = append(list, 0)
+
+	header := dropFiles{pFiles: uint32(unsafe.Sizeof(dropFiles{})), fWide: 1}
+	size := uintptr(unsafe.Sizeof(header)) + uintptr(len(list)*2)
+
+	h, _, allocErr := procGlobalAlloc.Call(gmemMoveable, size)
+	if h == 0 {
+		return fmt.Errorf("could not allocate clipboard memory: %w", allocErr)
+	}
+	p := lock(h)
+	if p == nil {
+		procGlobalFree.Call(h)
+		return fmt.Errorf("could not lock clipboard memory")
+	}
+	*(*dropFiles)(p) = header
+	copy(unsafe.Slice((*uint16)(unsafe.Add(p, unsafe.Sizeof(header))), len(list)), list)
+	procGlobalUnlock.Call(h)
+
+	effect, err := allocDropEffect()
+	if err != nil {
+		procGlobalFree.Call(h)
+		return err
+	}
+
+	if err := b.open(); err != nil {
+		procGlobalFree.Call(h)
+		procGlobalFree.Call(effect)
+		return err
+	}
+	defer b.close()
+
+	procEmptyClipboard.Call()
+	if r, _, setErr := procSetClipboardData.Call(cfHDrop, h); r == 0 {
+		procGlobalFree.Call(h)
+		procGlobalFree.Call(effect)
+		return fmt.Errorf("could not put the files on the clipboard: %w", setErr)
+	}
+	// Ownership of h has transferred; the effect block is best effort on top.
+	if fmtPreferredDropEffect == 0 {
+		fmtPreferredDropEffect = registerFormat("Preferred DropEffect")
+	}
+	if fmtPreferredDropEffect != 0 {
+		if r, _, _ := procSetClipboardData.Call(uintptr(fmtPreferredDropEffect), effect); r == 0 {
+			procGlobalFree.Call(effect)
+		}
+	} else {
+		procGlobalFree.Call(effect)
+	}
+	return nil
+}
+
+// allocDropEffect makes the small block that says "copy, do not move".
+func allocDropEffect() (uintptr, error) {
+	h, _, err := procGlobalAlloc.Call(gmemMoveable, 4)
+	if h == 0 {
+		return 0, fmt.Errorf("could not allocate the drop effect: %w", err)
+	}
+	p := lock(h)
+	if p == nil {
+		procGlobalFree.Call(h)
+		return 0, fmt.Errorf("could not lock the drop effect")
+	}
+	*(*uint32)(p) = dropEffectCopy
+	procGlobalUnlock.Call(h)
+	return h, nil
+}

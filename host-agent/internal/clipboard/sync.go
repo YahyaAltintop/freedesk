@@ -38,6 +38,9 @@ type Sync struct {
 	worker  *worker
 	maxText int
 	send    func(string)
+	// onFiles is called when the operator copies files in Explorer. Only the
+	// paths are handed over; nothing is read until the viewer asks.
+	onFiles func([]string)
 
 	mu sync.Mutex
 	// ownSeq is the sequence number produced by our own last write. The poller
@@ -51,6 +54,32 @@ type Sync struct {
 	// case another owner bumps the sequence in the same tick.
 	lastApplied string
 	stopped     bool
+}
+
+// OnFiles registers what to do when the operator copies files. Setting it is
+// optional: without it only text is shared.
+func (s *Sync) OnFiles(fn func(paths []string)) { s.onFiles = fn }
+
+// PutFiles puts files on the operator's clipboard, so they can be pasted in
+// Explorer. The paths must keep existing: Windows reads the bytes at PASTE
+// time, not now, which is why the files this is called with live in the
+// downloads folder rather than anywhere temporary.
+func (s *Sync) PutFiles(paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	s.worker.do(func(b Board) {
+		if err := b.WriteFiles(paths); err != nil {
+			log.Printf("[clipboard] could not put %d file(s) on the clipboard: %v", len(paths), err)
+			return
+		}
+		seq := b.Sequence()
+		s.mu.Lock()
+		s.ownSeq = seq
+		s.lastSeq = seq
+		s.mu.Unlock()
+		log.Printf("[clipboard] %d file(s) are on the clipboard — press Ctrl+V to paste them", len(paths))
+	})
 }
 
 // NewSync starts the clipboard worker for one session. mode is RC_CLIPBOARD:
@@ -100,6 +129,15 @@ func (s *Sync) poll(b Board) {
 	if b.Excluded() {
 		log.Printf("[clipboard] skipped a change marked private by the application that made it")
 		return
+	}
+
+	// Files first: copying a file in Explorer puts CF_HDROP there, not text.
+	if s.onFiles != nil {
+		if paths, ok, err := b.ReadFiles(); err == nil && ok {
+			log.Printf("[clipboard] the operator copied %d file(s)", len(paths))
+			s.onFiles(paths)
+			return
+		}
 	}
 
 	text, ok, err := b.ReadText()

@@ -22,8 +22,10 @@ export interface FileTransfer {
   // Files still queued, offered or sending.
   busyCount: ComputedRef<number>
   failedCount: ComputedRef<number>
-  // Offers a batch. Rejected files never leave the browser.
-  send: (files: File[]) => void
+  // Offers a batch. Rejected files never leave the browser. `pasted` marks
+  // files that came from a Ctrl+V rather than a drop, which asks the host to
+  // put them on its own clipboard once they are saved.
+  send: (files: File[], pasted?: boolean) => void
   // Stops a batch, whether it is waiting for an answer or already sending.
   cancel: (batchId: string) => void
   // Asks the host's operator to pick files to send here.
@@ -254,7 +256,7 @@ export function useFileTransfer(
     active.row.reason = reason
   }
 
-  function send(files: File[]): void {
+  function send(files: File[], pasted = false): void {
     const ch = channel.value
     if (!ready.value || !ch || ch.readyState !== 'open' || files.length === 0) {
       return
@@ -291,6 +293,7 @@ export function useFileTransfer(
       id,
       dir: 'up',
       files: files.map((f) => ({ name: f.name, size: f.size })),
+      ...(pasted ? { clip: true } : {}),
     })
 
     void runBatch(batch)

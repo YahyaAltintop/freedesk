@@ -31,6 +31,11 @@ that asks you to accept the connection says so. Text copied from a password
 manager is skipped, and you can switch sharing off entirely by putting
 RC_CLIPBOARD=off in the .env file next to the program.
 
+Files work the same way: files the other person pastes are saved to your
+Downloads\FreeDesk folder (after you accept) and put on your clipboard, so
+Ctrl+V in Explorer pastes them. Files you copy are offered to them, but
+nothing is sent until they ask for it.
+
 Files:
   freedesk-host.exe   the agent (needs no installation)
   ffmpeg.exe          screen capture and video encoding (unmodified official

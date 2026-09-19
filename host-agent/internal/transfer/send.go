@@ -69,7 +69,21 @@ func (s *Session) requested(id string) {
 		s.send(Reject(id, ReasonDenied))
 		return
 	}
+	s.offerPaths(id, paths)
+}
 
+// OfferFiles offers files the host already has — what the operator copied in
+// Explorer, for instance. Nothing is read until the viewer accepts, so this
+// tells it only what is on offer.
+func (s *Session) OfferFiles(id string, paths []string) {
+	if len(paths) == 0 || !s.claimSend(id) {
+		return
+	}
+	s.offerPaths(id, paths)
+}
+
+// offerPaths stats the chosen files and tells the viewer what is available.
+func (s *Session) offerPaths(id string, paths []string) {
 	files := make([]FileMeta, 0, len(paths))
 	keep := make([]string, 0, len(paths))
 	names := make([]string, 0, len(paths))
