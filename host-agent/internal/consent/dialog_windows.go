@@ -50,7 +50,7 @@ func NewDialog(timeout time.Duration) *Dialog {
 
 // Ask blocks until the operator clicks Yes or No, the timeout passes, or ctx
 // ends (the viewer withdrew the request). Only an explicit Yes approves.
-func (d *Dialog) Ask(ctx context.Context, p Prompt) bool {
+func (d *Dialog) Ask(ctx context.Context, p Prompt) Answer {
 	uiMu.Lock()
 	defer uiMu.Unlock()
 
@@ -85,16 +85,17 @@ func (d *Dialog) Ask(ctx context.Context, p Prompt) bool {
 	case ret := <-result:
 		switch ret {
 		case idYes:
-			return true
+			return Allowed
 		case mbTimedOut:
 			fmt.Println(">>> no answer; request rejected")
+			return Unanswered
 		}
-		return false
+		return Refused
 	case <-ctx.Done():
 		// The viewer gave up: press "No" on the box so it does not linger.
 		dismiss(title)
 		<-result
-		return false
+		return Refused
 	}
 }
 

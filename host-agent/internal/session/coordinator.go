@@ -39,22 +39,66 @@ const (
 // request). Mirrors consent.Approver so this package depends on the question,
 // not on how it is asked.
 type Approver interface {
-	Ask(ctx context.Context, p consent.Prompt) bool
+	Ask(ctx context.Context, p consent.Prompt) consent.Answer
 }
+
+// maxUnansweredPrompts is how many file questions may go unanswered in a row
+// before this session stops asking them.
+//
+// One prompt at a time already bounds the rate to one window per timeout, but
+// a bound is not the same as an end: an operator who has walked away from a
+// connected machine would otherwise be offered a fresh window every 45 seconds
+// for as long as the viewer cares to keep asking. Three is enough to absorb a
+// coffee break and short enough that nobody comes back to a screen full of
+// them.
+const maxUnansweredPrompts = 3
 
 // fileApprover asks the operator about incoming files, turning what the
 // transfer package knows into the question the consent package poses.
+//
+// It also holds this session's prompt-fatigue policy. That belongs here rather
+// than in the transfer package: the resource being protected is the operator's
+// attention, which is a consent concern, and the transfer state machine should
+// not have opinions about how often a human can be interrupted.
 type fileApprover struct {
 	approver  Approver
 	viewerUID string
+
+	mu         sync.Mutex
+	unanswered int
 }
 
-func (a fileApprover) AskFiles(ctx context.Context, files []transfer.FileOffer, folder string) bool {
+func (a *fileApprover) AskFiles(ctx context.Context, files []transfer.FileOffer, folder string) bool {
+	a.mu.Lock()
+	quiet := a.unanswered >= maxUnansweredPrompts
+	a.mu.Unlock()
+	if quiet {
+		// Refused as if the operator said no. Telling the viewer "nobody is
+		// there" would answer a question they should not get to ask.
+		return false
+	}
+
 	offers := make([]consent.FileOffer, len(files))
 	for i, f := range files {
 		offers[i] = consent.FileOffer{Name: f.Name, Size: f.Size}
 	}
-	return a.approver.Ask(ctx, consent.IncomingFiles(a.viewerUID, offers, folder))
+	answer := a.approver.Ask(ctx, consent.IncomingFiles(a.viewerUID, offers, folder))
+
+	a.mu.Lock()
+	if answer == consent.Unanswered {
+		a.unanswered++
+		if a.unanswered == maxUnansweredPrompts {
+			log.Printf("[session] %d file requests went unanswered; not asking again this session", a.unanswered)
+		}
+	} else {
+		// Counted in a row, not in total. Any answer at all proves somebody is
+		// at the machine, and a session where the operator missed three
+		// questions over an hour is not the one this is defending against.
+		a.unanswered = 0
+	}
+	a.mu.Unlock()
+
+	return answer.OK()
 }
 
 // Coordinator runs the host side of connection sessions: it validates each
@@ -177,7 +221,7 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 			}
 		}
 	}()
-	approved := approver.Ask(promptCtx, consent.ConnectRequest(req.ViewerUID, c.clipboardMode == clipboard.ModeText))
+	approved := approver.Ask(promptCtx, consent.ConnectRequest(req.ViewerUID, c.clipboardMode == clipboard.ModeText)).OK()
 	cancelPrompt()
 
 	select {
@@ -215,7 +259,7 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 
 	// One transfer handler per session, for the same reason: whatever it was
 	// writing when the viewer left must not survive the session either.
-	transfers := transfer.NewSession(ctx, fileApprover{approver: approver, viewerUID: req.ViewerUID},
+	transfers := transfer.NewSession(ctx, &fileApprover{approver: approver, viewerUID: req.ViewerUID},
 		c.picker, func(format string, args ...any) { log.Printf(format, args...) })
 
 	// The clipboard rides the file channel too: its text can run to a couple of

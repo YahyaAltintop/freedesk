@@ -20,8 +20,8 @@ func TestDialogTimesOutAndCanBeDismissed(t *testing.T) {
 	d := NewDialog(2 * time.Second)
 
 	start := time.Now()
-	if d.Ask(context.Background(), ConnectRequest("viewer-timeout", false)) {
-		t.Fatal("an unanswered dialog must reject")
+	if got := d.Ask(context.Background(), ConnectRequest("viewer-timeout", false)); got != Unanswered {
+		t.Fatalf("an unanswered dialog must report Unanswered, got %v", got)
 	}
 	if elapsed := time.Since(start); elapsed < 1500*time.Millisecond || elapsed > 5*time.Second {
 		t.Fatalf("expected the dialog to close on its 2 s timeout, took %v", elapsed)
@@ -31,8 +31,8 @@ func TestDialogTimesOutAndCanBeDismissed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	start = time.Now()
-	if d.Ask(ctx, ConnectRequest("viewer-withdrawn", false)) {
-		t.Fatal("a withdrawn request must reject")
+	if got := d.Ask(ctx, ConnectRequest("viewer-withdrawn", false)); got.OK() {
+		t.Fatalf("a withdrawn request must not be approved, got %v", got)
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("expected the dialog to be dismissed right after the context ended, took %v", elapsed)

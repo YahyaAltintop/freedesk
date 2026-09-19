@@ -38,7 +38,7 @@ func (c *Console) readLoop() {
 // Ask blocks until the operator answers, the timeout passes, or ctx ends.
 // Only an explicit yes ("y", "yes") approves; everything else —
 // including silence — rejects.
-func (c *Console) Ask(ctx context.Context, p Prompt) bool {
+func (c *Console) Ask(ctx context.Context, p Prompt) Answer {
 	uiMu.Lock()
 	defer uiMu.Unlock()
 
@@ -60,12 +60,16 @@ func (c *Console) Ask(ctx context.Context, p Prompt) bool {
 
 	select {
 	case line := <-c.lines:
-		answer := strings.ToLower(line)
-		return answer == "y" || answer == "yes"
+		if answer := strings.ToLower(line); answer == "y" || answer == "yes" {
+			return Allowed
+		}
+		return Refused
 	case <-timer.C:
 		fmt.Println()
-		return false
+		// Typing anything at all is an answer; this is the case where nobody
+		// is at the keyboard, which is a different fact about the machine.
+		return Unanswered
 	case <-ctx.Done():
-		return false
+		return Refused
 	}
 }

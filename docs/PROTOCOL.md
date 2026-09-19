@@ -242,6 +242,12 @@ belong in the contract rather than in one implementation:
   scarcest thing in the design for nothing.
 - Nothing survives the session: a partial file is deleted and a pending prompt
   is dismissed when the channel closes.
+- **A host may stop asking.** After a few questions go unanswered in a row, a
+  host may refuse the rest of the session's offers without disturbing the
+  operator again. `denied` therefore means "not allowed" rather than "a person
+  said no", and a viewer cannot tell the two apart — which is deliberate:
+  whether somebody is sitting at the machine is not something the protocol
+  should be willing to report.
 
 `reason` accompanies `f-reject` and `f-error`. A receiver that does not
 recognise one must still treat the transfer as over; the value only decides the
