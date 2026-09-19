@@ -62,6 +62,13 @@ const (
 // this is a frame that claims to be something it is not.
 var ErrBadMessage = errors.New("malformed transfer message")
 
+// FileMeta is one file in an offer: what it is called and how big it claims to
+// be. The size is a claim the receiver checks against what actually arrives.
+type FileMeta struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
 // Msg is one control frame. Binary frames on the same channel are payload and
 // never reach here.
 //
@@ -70,18 +77,34 @@ var ErrBadMessage = errors.New("malformed transfer message")
 // reused with a different JSON type breaks remote control itself — a steep
 // price for sharing a struct between two parsers that no longer even share a
 // channel.
+//
+// An offer covers a whole batch rather than one file, because the operator is
+// asked once per batch: a prompt per file trains people to click Yes without
+// reading, which destroys the only real control in the system. The files of a
+// batch are then sent in order — the channel is ordered and reliable, so the
+// receiver knows which file it is on by counting the completions.
 type Msg struct {
-	T    string `json:"t"`
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
-	Size int64  `json:"size,omitempty"`
+	T     string     `json:"t"`
+	ID    string     `json:"id,omitempty"`    // batch id
+	Files []FileMeta `json:"files,omitempty"` // f-offer
+	Index int        `json:"index,omitempty"` // which file of the batch
+	Size  int64      `json:"size,omitempty"`  // f-complete: bytes sent for this file
+	Sent  int64      `json:"sent,omitempty"`  // f-progress: bytes written so far
 	// Offset is reserved for resuming an interrupted transfer and is always 0
 	// today. It is in the schema from the start so adding resume later does not
 	// have to change the contract.
 	Offset int64  `json:"offset,omitempty"`
 	Dir    string `json:"dir,omitempty"`
-	Sent   int64  `json:"sent,omitempty"`
 	Reason string `json:"reason,omitempty"`
+}
+
+// TotalSize is what the batch claims to add up to.
+func (m Msg) TotalSize() int64 {
+	var total int64
+	for _, f := range m.Files {
+		total += f.Size
+	}
+	return total
 }
 
 // ParseMsg decodes and validates one control frame.
@@ -105,17 +128,30 @@ func (m Msg) validate() error {
 	case "":
 		return ErrBadMessage
 	case TypeOffer:
-		if m.ID == "" || m.Name == "" || m.Size <= 0 || m.Offset != 0 {
+		if m.ID == "" || m.Offset != 0 {
 			return ErrBadMessage
 		}
 		if m.Dir != DirUp && m.Dir != DirDown {
+			return ErrBadMessage
+		}
+		if len(m.Files) == 0 || len(m.Files) > MaxBatchFiles {
+			return ErrBadMessage
+		}
+		for _, f := range m.Files {
+			// Names are checked properly by SafeName later; here it is only
+			// that the fields are present and the size is sane at all.
+			if f.Name == "" || f.Size <= 0 || f.Size > MaxFileBytes {
+				return ErrBadMessage
+			}
+		}
+		if m.TotalSize() > MaxBatchBytes {
 			return ErrBadMessage
 		}
 	case TypeAccept, TypeReject, TypeComplete, TypeDone, TypeProgress, TypeCancel, TypeError:
 		if m.ID == "" {
 			return ErrBadMessage
 		}
-		if m.Size < 0 || m.Sent < 0 {
+		if m.Size < 0 || m.Sent < 0 || m.Index < 0 {
 			return ErrBadMessage
 		}
 	}

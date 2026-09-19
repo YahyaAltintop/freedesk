@@ -28,6 +28,7 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/host"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/localapi"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/session"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/transfer"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/webrtc"
 )
 
@@ -121,6 +122,15 @@ func run() error {
 	// --- Incoming requests -----------------------------------------------------
 	approver := consent.New(cfg.ApprovalMode, approvalTimeout)
 	log.Printf("[host-agent] screen capture will use: %s", capture.NewScreenCapture(cfg.FFmpegPath).Binary())
+
+	// Say where accepted files would go before anyone sends one — the operator
+	// should not first learn this from a prompt. The folder itself is only
+	// created if a file is ever accepted. Any half-written file left by a run
+	// that was killed is cleaned up here.
+	downloads := transfer.NewDest().Root()
+	log.Printf("[host-agent] files you accept will be saved to: %s", downloads)
+	transfer.SweepPartials(downloads)
+
 	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath)
 	inbox := session.NewInbox(rtdb, manager.UID())
 

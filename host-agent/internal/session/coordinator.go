@@ -14,6 +14,7 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/input"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/transfer"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/webrtc"
 )
 
@@ -35,6 +36,21 @@ const (
 // not on how it is asked.
 type Approver interface {
 	Ask(ctx context.Context, p consent.Prompt) bool
+}
+
+// fileApprover asks the operator about incoming files, turning what the
+// transfer package knows into the question the consent package poses.
+type fileApprover struct {
+	approver  Approver
+	viewerUID string
+}
+
+func (a fileApprover) AskFiles(ctx context.Context, files []transfer.FileOffer, folder string) bool {
+	offers := make([]consent.FileOffer, len(files))
+	for i, f := range files {
+		offers[i] = consent.FileOffer{Name: f.Name, Size: f.Size}
+	}
+	return a.approver.Ask(ctx, consent.IncomingFiles(a.viewerUID, offers, folder))
 }
 
 // Coordinator runs the host side of connection sessions: it validates each
@@ -145,12 +161,12 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 		return
 	}
 
-	c.connect(sessionCtx, req, transport)
+	c.connect(sessionCtx, req, transport, approver)
 	c.finish(req)
 }
 
 // connect negotiates the WebRTC connection and supervises it until it ends.
-func (c *Coordinator) connect(ctx context.Context, req Request, transport *signaling.RTDBTransport) {
+func (c *Coordinator) connect(ctx context.Context, req Request, transport *signaling.RTDBTransport, approver Approver) {
 	log.Printf("[session] %s: establishing connection…", req.ID)
 
 	closed := make(chan struct{})
@@ -160,6 +176,11 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 	// One input handler per session: it tracks what the viewer holds down so
 	// nothing stays pressed on this machine once the viewer is gone.
 	inputHandler := input.NewHandler()
+
+	// One transfer handler per session, for the same reason: whatever it was
+	// writing when the viewer left must not survive the session either.
+	transfers := transfer.NewSession(ctx, fileApprover{approver: approver, viewerUID: req.ViewerUID},
+		func(format string, args ...any) { log.Printf(format, args...) })
 
 	hooks := webrtc.Hooks{
 		// One callback per channel of the session; what a channel carries is
@@ -182,8 +203,15 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 					inputHandler.ReleaseAll()
 				})
 			case webrtc.FileChannelLabel:
-				// Offered so the viewer can tell this agent supports transfers;
-				// nothing reads it yet.
+				transfers.Attach(dc)
+				dc.OnMessage(func(msg pion.DataChannelMessage) {
+					// IsString is the only thing separating a control frame
+					// from a chunk of a file.
+					transfers.Handle(msg.Data, msg.IsString)
+				})
+				dc.OnClose(func() {
+					transfers.Close()
+				})
 			}
 		},
 		OnState: func(st pion.PeerConnectionState) {
@@ -217,6 +245,7 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 	case <-ctx.Done():
 	}
 	inputHandler.ReleaseAll()
+	transfers.Close()
 	_ = pc.Close()
 	log.Printf("[session] %s: connection ended", req.ID)
 }
