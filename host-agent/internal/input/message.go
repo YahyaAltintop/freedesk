@@ -4,7 +4,7 @@ import "encoding/json"
 
 // Message is one input event from the viewer (see docs/PROTOCOL.md).
 type Message struct {
-	T    string  `json:"t"`    // "m" | "md" | "mu" | "w" | "kd" | "ku" | "hello"
+	T    string  `json:"t"`    // "m" | "md" | "mu" | "w" | "kd" | "ku"
 	X    float64 `json:"x"`    // normalised [0,1]
 	Y    float64 `json:"y"`    // normalised [0,1]
 	B    int     `json:"b"`    // mouse button: 0=left 1=right 2=middle

@@ -108,7 +108,13 @@ func Finish(f *os.File, finalPath string) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(finalPath+partSuffix, finalPath)
+	if err := os.Rename(finalPath+partSuffix, finalPath); err != nil {
+		return err
+	}
+	// Tag it the way a browser tags a download, so Windows knows this file came
+	// from another machine and warns before anyone runs it.
+	markDownloaded(finalPath)
+	return nil
 }
 
 // Abandon closes and deletes a partial file. It is safe to call more than once

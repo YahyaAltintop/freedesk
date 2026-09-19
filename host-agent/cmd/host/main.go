@@ -33,7 +33,7 @@ import (
 )
 
 // appVersion is overwritten by the release build (-ldflags "-X main.appVersion=…").
-var appVersion = "0.2.1-dev"
+var appVersion = "0.3.0-dev"
 
 const (
 	envFile = ".env"
@@ -131,7 +131,7 @@ func run() error {
 	log.Printf("[host-agent] files you accept will be saved to: %s", downloads)
 	transfer.SweepPartials(downloads)
 
-	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath)
+	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath, appVersion)
 	inbox := session.NewInbox(rtdb, manager.UID())
 
 	var sessions sessionTracker

@@ -13,6 +13,7 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/consent"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/input"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/protocol"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/transfer"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/webrtc"
@@ -63,6 +64,9 @@ type Coordinator struct {
 	ownerUID   string
 	cfg        webrtc.Config
 	ffmpegPath string
+	// version is announced to the viewer in the greeting, so it can explain
+	// what an old agent is missing instead of just disabling a button.
+	version string
 
 	mu     sync.Mutex
 	active bool
@@ -71,8 +75,15 @@ type Coordinator struct {
 // NewCoordinator builds a coordinator for the authenticated owner, with the
 // ICE config and the ffmpeg executable to use for screen capture (empty =
 // "ffmpeg" from PATH).
-func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, ffmpegPath string) *Coordinator {
-	return &Coordinator{rtdb: rtdb, ownerUID: ownerUID, cfg: cfg, ffmpegPath: ffmpegPath}
+func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, ffmpegPath, version string) *Coordinator {
+	return &Coordinator{rtdb: rtdb, ownerUID: ownerUID, cfg: cfg, ffmpegPath: ffmpegPath, version: version}
+}
+
+// capabilities lists what this agent can do, for the greeting. It is built
+// from what the session actually wires up, so the list cannot drift from the
+// code: a viewer that sees a capability here can rely on it being handled.
+func (c *Coordinator) capabilities() []string {
+	return []string{protocol.CapFileSend}
 }
 
 // Run handles one request from approval to the end of the connection. It is
@@ -186,8 +197,21 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 		// One callback per channel of the session; what a channel carries is
 		// decided by its label, never by arrival order.
 		OnDataChannel: func(dc *pion.DataChannel) {
+			// One OnOpen per channel: pion's OnOpen sets the handler rather
+			// than adding to it, so a second registration would replace this.
 			dc.OnOpen(func() {
 				log.Printf("[session] %s: DataChannel '%s' opened", req.ID, dc.Label())
+				if dc.Label() != webrtc.InputChannelLabel {
+					return
+				}
+				// Announce what this agent can do, unprompted. A viewer has no
+				// other way to find out: an agent from before this greeting
+				// existed never writes to the channel at all, so its silence is
+				// the signal that it is old.
+				hello := protocol.NewHello(c.version, c.capabilities()...)
+				if err := dc.SendText(hello.Encode()); err != nil {
+					log.Printf("[session] %s: could not send hello: %v", req.ID, err)
+				}
 			})
 			switch dc.Label() {
 			case webrtc.InputChannelLabel:

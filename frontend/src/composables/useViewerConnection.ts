@@ -4,6 +4,7 @@ import {
   DATA_CHANNEL_FILE,
   DATA_CHANNEL_INPUT,
   DISCONNECT_GRACE_MS,
+  HELLO_TIMEOUT_MS,
   ICE_SERVERS,
 } from '@/constants/webrtc'
 import {
@@ -14,6 +15,7 @@ import {
 } from '@/services/session.service'
 import { addViewerCandidate, onHostCandidates, setAnswer } from '@/services/signaling.service'
 import { toFriendlyError } from '@/utils/firebaseErrors'
+import { parseHello } from '@/types/protocol'
 import type { Description, IceCandidate } from '@/types/signaling'
 import type { Host } from '@/types/host'
 import type { SessionStatus } from '@/types/session'
@@ -37,10 +39,17 @@ export function useViewerConnection() {
   const dataChannel = shallowRef<RTCDataChannel | null>(null)
   const inputReady = ref(false)
   // The file channel is separate so a transfer never queues ahead of a mouse
-  // move. A host too old to offer it simply leaves `fileReady` false, which is
-  // how the viewer knows transfers are unavailable.
+  // move. A host too old to offer it simply leaves `fileReady` false.
   const fileChannel = shallowRef<RTCDataChannel | null>(null)
   const fileReady = ref(false)
+  // What the host said it can do. Empty until its greeting arrives — or until
+  // the wait runs out, which is itself the answer: an agent from before the
+  // greeting existed never writes to the channel, so silence means "old".
+  const hostCaps = shallowRef<Set<string>>(new Set())
+  const hostVersion = ref<string | null>(null)
+  // False only while the greeting is still worth waiting for, so the UI can
+  // hold off instead of briefly claiming a feature is missing.
+  const capsSettled = ref(false)
   const sessionStatus = ref<SessionStatus | null>(null)
 
   let pc: RTCPeerConnection | null = null
@@ -58,6 +67,7 @@ export function useViewerConnection() {
   let approvalTimerStarted = false
   let timer: ReturnType<typeof setTimeout> | null = null
   let graceTimer: ReturnType<typeof setTimeout> | null = null
+  let helloTimer: ReturnType<typeof setTimeout> | null = null
 
   async function connect(target: Host, viewerUid: string): Promise<void> {
     if (state.value === 'connecting' || state.value === 'connected') {
@@ -92,9 +102,15 @@ export function useViewerConnection() {
             dataChannel.value = channel
             channel.onopen = () => {
               inputReady.value = true
+              startHelloTimer()
             }
             channel.onclose = () => {
               inputReady.value = false
+            }
+            channel.onmessage = (event) => {
+              if (typeof event.data === 'string') {
+                applyHello(event.data)
+              }
             }
             break
           case DATA_CHANNEL_FILE:
@@ -265,6 +281,10 @@ export function useViewerConnection() {
     inputReady.value = false
     fileChannel.value = null
     fileReady.value = false
+    clearHelloTimer()
+    hostCaps.value = new Set()
+    hostVersion.value = null
+    capsSettled.value = false
     if (state.value !== 'failed') {
       state.value = finalState
     }
@@ -293,6 +313,10 @@ export function useViewerConnection() {
     inputReady.value = false
     fileChannel.value = null
     fileReady.value = false
+    clearHelloTimer()
+    hostCaps.value = new Set()
+    hostVersion.value = null
+    capsSettled.value = false
     sessionStatus.value = null
     host = null
     sessionId = null
@@ -335,6 +359,35 @@ export function useViewerConnection() {
     }, DISCONNECT_GRACE_MS)
   }
 
+  // startHelloTimer bounds the wait for the host's greeting. Running out is a
+  // real answer, not a failure: it means the agent predates the greeting and
+  // can do nothing beyond remote control.
+  function startHelloTimer(): void {
+    clearHelloTimer()
+    helloTimer = setTimeout(() => {
+      helloTimer = null
+      capsSettled.value = true
+    }, HELLO_TIMEOUT_MS)
+  }
+
+  function clearHelloTimer(): void {
+    if (helloTimer) {
+      clearTimeout(helloTimer)
+      helloTimer = null
+    }
+  }
+
+  function applyHello(raw: string): void {
+    const hello = parseHello(raw)
+    if (!hello) {
+      return // not the greeting; unknown messages are ignored, never an error
+    }
+    clearHelloTimer()
+    hostCaps.value = hello.caps
+    hostVersion.value = hello.agent || null
+    capsSettled.value = true
+  }
+
   function clearGraceTimer(): void {
     if (graceTimer !== null) {
       clearTimeout(graceTimer)
@@ -350,6 +403,9 @@ export function useViewerConnection() {
     inputReady,
     fileChannel,
     fileReady,
+    hostCaps,
+    hostVersion,
+    capsSettled,
     sessionStatus,
     connect,
     disconnect,

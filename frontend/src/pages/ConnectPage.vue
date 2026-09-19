@@ -9,6 +9,7 @@ import { useFullscreen } from '@/composables/useFullscreen'
 import { useFileTransfer } from '@/composables/useFileTransfer'
 import { useFileDrop } from '@/composables/useFileDrop'
 import TransferPanel from '@/components/TransferPanel.vue'
+import { CAP_FILE_SEND } from '@/types/protocol'
 import { useServerNow } from '@/composables/useServerNow'
 import { isHostOnline } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
@@ -29,6 +30,9 @@ const {
   inputReady,
   fileChannel,
   fileReady,
+  hostCaps,
+  hostVersion,
+  capsSettled,
   sessionStatus,
   connect,
   disconnect,
@@ -64,10 +68,13 @@ const { controlling, focus: focusStage } = useInputCapture(videoEl, sendInput, s
 const { isFullscreen, supported: fullscreenSupported, toggle: toggleFullscreen } =
   useFullscreen(stageEl)
 
-// Transfers ride their own channel. An agent too old to offer one leaves
-// `fileReady` false for the whole session, and that is the only way to know:
-// such a host never writes to a channel at all, so there is nothing to ask.
-const transfersAvailable = computed(() => state.value === 'connected' && fileReady.value)
+// Gated on what the host said it can do, not on its version number, so a later
+// agent can add a capability without this viewer knowing the numbering.
+// `fileReady` is still required: the capability says it is willing, the open
+// channel says there is somewhere to send.
+const transfersAvailable = computed(
+  () => state.value === 'connected' && fileReady.value && hostCaps.value.has(CAP_FILE_SEND),
+)
 const { rows, busyCount, failedCount, send, cancel, clearFinished } = useFileTransfer(
   fileChannel,
   fileReady,
@@ -86,7 +93,14 @@ const transferTitle = computed(() => {
   if (transfersAvailable.value) {
     return 'Send files to the other computer'
   }
-  const version = host.value?.version ? ` (it runs ${host.value.version})` : ''
+  if (!capsSettled.value) {
+    return 'Checking what the other computer supports…'
+  }
+  // The version the agent told us beats the one in its public record: the
+  // record is written once at startup, the greeting comes from the process
+  // that is actually running.
+  const reported = hostVersion.value ?? host.value?.version
+  const version = reported ? ` (it runs ${reported})` : ''
   return `This computer's FreeDesk agent is too old for file transfer${version}. Update it to send files.`
 })
 

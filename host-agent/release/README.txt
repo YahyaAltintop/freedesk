@@ -18,6 +18,10 @@ This folder lets someone else see and control THIS computer from a browser.
 If the window shows an error instead of a code, it also says what to fix;
 the window stays open until you press Enter.
 
+If the other person sends you files, a second window asks first. Files you
+accept are saved to your Downloads\FreeDesk folder. Nothing is written
+without your click, and an existing file is never replaced.
+
 Files:
   freedesk-host.exe   the agent (needs no installation)
   ffmpeg.exe          screen capture and video encoding (unmodified official
@@ -25,7 +29,8 @@ Files:
   LICENSE.txt         FreeDesk license (MIT)
 
 Limits of this version: Windows 10/11 only, primary monitor only, no audio,
-no clipboard or file transfer, no unattended access (someone must click Yes),
-and some networks (mobile / CGNAT) cannot connect directly.
+no clipboard sharing, folders cannot be sent (only files), no unattended
+access (someone must click Yes), and some networks (mobile / CGNAT) cannot
+connect directly.
 
 Source code and the web page address: see the project's GitHub page.

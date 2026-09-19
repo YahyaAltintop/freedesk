@@ -22,6 +22,11 @@ export const DISCONNECT_GRACE_MS = 5_000
 export const DATA_CHANNEL_INPUT = 'input'
 export const DATA_CHANNEL_FILE = 'file'
 
+// How long to wait for the host's greeting before concluding it is too old to
+// send one (docs/PROTOCOL.md §2.2). It arrives on the channel that has just
+// opened, so this only has to cover one delivery, not a round trip.
+export const HELLO_TIMEOUT_MS = 2_000
+
 // One binary frame's payload. The ceiling is the browser's advertised
 // max-message-size; the practical limit is the host's 64 KiB read buffer,
 // which a 64 KiB chunk pushes just past. Must match ChunkBytes in the Go
