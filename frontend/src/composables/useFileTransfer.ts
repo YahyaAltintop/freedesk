@@ -1,4 +1,12 @@
-import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue'
+import {
+  computed,
+  onScopeDispose,
+  ref,
+  shallowReactive,
+  watch,
+  type ComputedRef,
+  type Ref,
+} from 'vue'
 import {
   CHUNK_BYTES,
   MAX_BATCH_BYTES,
@@ -75,10 +83,18 @@ export function useFileTransfer(
   // there is no catch left to run. Deriving this from the rows instead means a
   // late f-error and an early f-reject are handled by the same code.
   //
-  // A File is a handle to something on disk, not its bytes, so holding one
-  // costs nothing until it is read — the same property that lets sendFile
-  // slice a few hundred megabytes without the tab noticing.
-  const held = new Map<string, File[]>()
+  // Entries are therefore kept for batches that succeeded too, until the rows
+  // go: "Clear finished", a retry, or the session ending. A File is a handle to
+  // something on disk rather than its bytes, so holding one costs nothing until
+  // it is read — the same property that lets sendFile slice a few hundred
+  // megabytes without the tab noticing — and a session is capped at 200 files.
+  //
+  // Reactive because `retryable` reads it. A plain Map would leave that
+  // computed depending on `rows` alone, so clearing this without also touching
+  // a row — which is exactly what happens when the session ends — would leave
+  // the stale answer cached and a Retry button on screen with no files behind
+  // it. Shallow, so the File arrays are handed back unwrapped.
+  const held = shallowReactive(new Map<string, File[]>())
 
   const busyCount = computed(
     () =>
@@ -93,6 +109,12 @@ export function useFileTransfer(
       ).length,
   )
   const retryable = computed(() => {
+    // Nothing can be sent again without a channel to send it over, whatever
+    // the rows say: a row that failed before the session ended keeps its own
+    // reason, so it would otherwise still look retryable.
+    if (!ready.value) {
+      return []
+    }
     const ids = new Set<string>()
     for (const row of rows.value) {
       if (held.has(row.batchId) && isRetryable(row)) {
