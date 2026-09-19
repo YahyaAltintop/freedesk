@@ -91,3 +91,27 @@ func TestHandleForwardsEvents(t *testing.T) {
 		t.Fatalf("Handle calls:\n got %v\nwant %v", rec.calls, want)
 	}
 }
+
+// Transfer control frames travel on their own channel and have their own
+// parser, but a frame that ended up here anyway must do nothing at all. The
+// struct this package decodes into is flat, so a foreign message with a
+// familiar-looking field is exactly the kind of thing that would otherwise be
+// half-understood — and a stray mouse move is not a harmless outcome.
+func TestTransferFramesAreIgnored(t *testing.T) {
+	rec := &recorder{}
+	h := newHandler(rec)
+
+	feed(h,
+		`{"t":"f-offer","id":"a1","name":"report.pdf","size":1234,"dir":"up"}`,
+		`{"t":"f-accept","id":"a1"}`,
+		`{"t":"f-complete","id":"a1","size":1234}`,
+		`{"t":"f-cancel","id":"a1","reason":"gone"}`,
+		`{"t":"hello","v":2}`,
+		`{"t":"","x":0.9,"y":0.9}`,
+		`not json at all`,
+	)
+
+	if len(rec.calls) != 0 {
+		t.Fatalf("expected nothing to be injected, got %v", rec.calls)
+	}
+}
