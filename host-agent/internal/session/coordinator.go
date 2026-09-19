@@ -10,6 +10,7 @@ import (
 	"github.com/pion/webrtc/v4/pkg/media"
 
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/capture"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/consent"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/input"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
@@ -28,10 +29,12 @@ const (
 	cleanupTimeout  = 10 * time.Second
 )
 
-// Approver decides whether an incoming connection may proceed. It must return
-// false when ctx is cancelled (the viewer withdrew the request).
+// Approver decides whether a request the operator was asked about may
+// proceed. It must return false when ctx is cancelled (the viewer withdrew the
+// request). Mirrors consent.Approver so this package depends on the question,
+// not on how it is asked.
 type Approver interface {
-	Ask(ctx context.Context, viewerUID string) bool
+	Ask(ctx context.Context, p consent.Prompt) bool
 }
 
 // Coordinator runs the host side of connection sessions: it validates each
@@ -126,7 +129,7 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 			}
 		}
 	}()
-	approved := approver.Ask(promptCtx, req.ViewerUID)
+	approved := approver.Ask(promptCtx, consent.ConnectRequest(req.ViewerUID))
 	cancelPrompt()
 
 	select {

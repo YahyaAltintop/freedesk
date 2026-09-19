@@ -26,8 +26,6 @@ const (
 	mbTimedOut  = 32000
 	wmCommand   = 0x0111
 	dialogClass = "#32770"
-
-	dialogTitle = "FreeDesk - Connection request"
 )
 
 var (
@@ -52,18 +50,17 @@ func NewDialog(timeout time.Duration) *Dialog {
 
 // Ask blocks until the operator clicks Yes or No, the timeout passes, or ctx
 // ends (the viewer withdrew the request). Only an explicit Yes approves.
-func (d *Dialog) Ask(ctx context.Context, viewerUID string) bool {
+func (d *Dialog) Ask(ctx context.Context, p Prompt) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	d.seq++
 	// A unique title lets us find and dismiss exactly this box on withdrawal.
-	title := fmt.Sprintf("%s (#%d)", dialogTitle, d.seq)
-	text := fmt.Sprintf("Someone entered this computer's code and wants to connect.\n\n"+
-		"Allow them to see your screen and control this computer?\n\n"+
-		"This request is rejected automatically in %.0f seconds.\n(viewer %s)",
-		d.timeout.Seconds(), shortID(viewerUID))
-	fmt.Printf("\n>>> INCOMING CONNECTION REQUEST (viewer=%s) — answer in the dialog window\n", viewerUID)
+	title := p.Title(d.seq)
+	text := p.Text(d.timeout)
+	// Echo the question to the console too: the operator may be looking there,
+	// and it leaves a record of what was asked.
+	fmt.Printf("%s>>> Answer in the dialog window.\n", p.ConsoleHeader())
 
 	result := make(chan uintptr, 1)
 	go func() {
@@ -112,13 +109,6 @@ func dismiss(title string) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	log.Println("[consent] could not find the request dialog to dismiss it")
-}
-
-func shortID(uid string) string {
-	if len(uid) > 8 {
-		return uid[:8] + "…"
-	}
-	return uid
 }
 
 // newPlatformApprover picks the native dialog unless the operator asked for

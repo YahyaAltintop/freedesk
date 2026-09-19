@@ -40,7 +40,7 @@ func (c *Console) readLoop() {
 // Ask blocks until the operator answers, the timeout passes, or ctx ends.
 // Only an explicit yes ("y", "yes") approves; everything else —
 // including silence — rejects.
-func (c *Console) Ask(ctx context.Context, viewerUID string) bool {
+func (c *Console) Ask(ctx context.Context, p Prompt) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -55,8 +55,7 @@ func (c *Console) Ask(ctx context.Context, viewerUID string) bool {
 		}
 	}
 
-	fmt.Printf("\n>>> INCOMING CONNECTION REQUEST (viewer=%s)\n>>> Type 'y' and press Enter to accept (rejected if there is no answer within %.0f s): ",
-		viewerUID, c.timeout.Seconds())
+	fmt.Print(p.ConsoleLine(c.timeout))
 
 	timer := time.NewTimer(c.timeout)
 	defer timer.Stop()
