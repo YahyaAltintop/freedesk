@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { reasonText, type TransferRow } from '@/types/transfer'
+import { isRetryable, reasonText, type TransferRow } from '@/types/transfer'
 
 const props = defineProps<{
   rows: TransferRow[]
   refusal: string | null
   canReceive: boolean
+  // Batches whose files the browser is still holding.
+  retryable: string[]
 }>()
 
 const emit = defineEmits<{
@@ -14,6 +16,7 @@ const emit = defineEmits<{
   request: []
   save: [row: TransferRow]
   cancel: [batchId: string]
+  retry: [batchId: string]
   clear: []
 }>()
 
@@ -58,6 +61,12 @@ function statusText(row: TransferRow): string {
 
 function isBusy(row: TransferRow): boolean {
   return row.status === 'awaiting' || row.status === 'sending' || row.status === 'receiving'
+}
+
+// Two conditions, and both are needed: the way it ended has to be worth
+// another attempt, and the browser has to still be holding the file.
+function canRetry(row: TransferRow): boolean {
+  return isRetryable(row) && props.retryable.includes(row.batchId)
 }
 </script>
 
@@ -130,6 +139,20 @@ function isBusy(row: TransferRow): boolean {
             @click="emit('cancel', row.batchId)"
           >
             Cancel
+          </button>
+          <!-- Acts on the whole batch, like Cancel above it: the other person
+               is asked once per batch, so a batch is what can be tried again.
+               Every unfinished row of one therefore carries the button, and
+               the first click settles it for all of them. -->
+          <button
+            v-else-if="canRetry(row)"
+            class="btn btn-sm fd-row-retry"
+            type="button"
+            title="Send the files of this batch that did not arrive"
+            @mousedown.prevent
+            @click="emit('retry', row.batchId)"
+          >
+            Retry
           </button>
         </div>
         <div
@@ -241,13 +264,15 @@ function isBusy(row: TransferRow): boolean {
   border-radius: 8px;
 }
 
-.fd-row-cancel {
+.fd-row-cancel,
+.fd-row-retry {
   color: var(--fd-muted);
   font-size: 0.72rem;
   padding: 0 0.35rem;
   flex-shrink: 0;
 }
-.fd-row-cancel:hover {
+.fd-row-cancel:hover,
+.fd-row-retry:hover {
   color: var(--fd-ink);
 }
 

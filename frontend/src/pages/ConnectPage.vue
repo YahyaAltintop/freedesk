@@ -76,8 +76,18 @@ const { isFullscreen, supported: fullscreenSupported, toggle: toggleFullscreen }
 const transfersAvailable = computed(
   () => state.value === 'connected' && fileReady.value && hostCaps.value.has(CAP_FILE_SEND),
 )
-const { rows, busyCount, failedCount, send, cancel, clearFinished, request, save } =
-  useFileTransfer(fileChannel, fileReady)
+const {
+  rows,
+  busyCount,
+  failedCount,
+  retryable,
+  send,
+  cancel,
+  retry,
+  clearFinished,
+  request,
+  save,
+} = useFileTransfer(fileChannel, fileReady)
 
 // Only offered when the host said it can open a picker: without one the button
 // would be something that can never do anything. Console-mode agents say no.
@@ -409,11 +419,13 @@ onBeforeUnmount(() => {
         :rows="rows"
         :refusal="refusal"
         :can-receive="canReceive"
+        :retryable="retryable"
         @close="togglePanel"
         @pick="pickFiles"
         @request="request"
         @save="save"
         @cancel="cancel"
+        @retry="retry"
         @clear="clearFinished"
       />
     </div>

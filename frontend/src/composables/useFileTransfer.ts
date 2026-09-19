@@ -10,6 +10,7 @@ import {
 } from '@/constants/webrtc'
 import { createSink, SinkTooLargeError, type FileSink } from '@/utils/fileSink'
 import {
+  isRetryable,
   parseTransferMessage,
   type TransferOutbound,
   type TransferReason,
@@ -22,6 +23,9 @@ export interface FileTransfer {
   // Files still queued, offered or sending.
   busyCount: ComputedRef<number>
   failedCount: ComputedRef<number>
+  // Batches that can be sent again: their files are still held and at least
+  // one row of them is worth another attempt.
+  retryable: ComputedRef<string[]>
   // Offers a batch. Rejected files never leave the browser. `pasted` marks
   // files that came from a Ctrl+V rather than a drop, which asks the host to
   // put them on its own clipboard once they are saved.
@@ -33,6 +37,8 @@ export interface FileTransfer {
   // Saves one offered file. MUST be called from a click: the browser's save
   // dialog is refused without a user gesture.
   save: (row: TransferRow) => void
+  // Sends the unfinished files of a batch again, as a new batch.
+  retry: (batchId: string) => void
   // Forgets finished rows.
   clearFinished: () => void
 }
@@ -60,6 +66,20 @@ export function useFileTransfer(
   const rows = ref<TransferRow[]>([])
   const batches = new Map<string, Batch>()
 
+  // Files kept for as long as their batch has rows on screen.
+  //
+  // Held from the moment a batch is offered rather than from the point one
+  // fails, because there is no single moment where a batch "has failed": the
+  // host can report a write error long after this side pushed the last byte
+  // and stopped watching, by which time runBatch has returned normally and
+  // there is no catch left to run. Deriving this from the rows instead means a
+  // late f-error and an early f-reject are handled by the same code.
+  //
+  // A File is a handle to something on disk, not its bytes, so holding one
+  // costs nothing until it is read — the same property that lets sendFile
+  // slice a few hundred megabytes without the tab noticing.
+  const held = new Map<string, File[]>()
+
   const busyCount = computed(
     () =>
       rows.value.filter(
@@ -72,6 +92,15 @@ export function useFileTransfer(
         (r) => r.status === 'failed' || r.status === 'declined' || r.status === 'timeout',
       ).length,
   )
+  const retryable = computed(() => {
+    const ids = new Set<string>()
+    for (const row of rows.value) {
+      if (held.has(row.batchId) && isRetryable(row)) {
+        ids.add(row.batchId)
+      }
+    }
+    return [...ids]
+  })
 
   function rowsOf(batchId: string): TransferRow[] {
     return rows.value.filter((r) => r.batchId === batchId)
@@ -288,6 +317,7 @@ export function useFileTransfer(
       return
     }
 
+    held.set(id, files)
     post({
       t: 'f-offer',
       id,
@@ -409,6 +439,28 @@ export function useFileTransfer(
     post({ t: 'f-cancel', id: batchId })
   }
 
+  // retry sends the files of a failed batch again, as a new batch with a new
+  // id — this is not resume. Files that did land keep their rows and are not
+  // sent twice: the host would store them beside the originals as " (2)",
+  // which is not what anyone clicking Retry is asking for.
+  function retry(batchId: string): void {
+    const files = held.get(batchId)
+    if (!files || !ready.value) {
+      return
+    }
+    const finished = new Set(
+      rowsOf(batchId)
+        .filter((r) => r.status === 'done')
+        .map((r) => r.index),
+    )
+    held.delete(batchId)
+    rows.value = rows.value.filter((r) => r.batchId !== batchId || r.status === 'done')
+    const again = files.filter((_, index) => !finished.has(index))
+    if (again.length > 0) {
+      send(again)
+    }
+  }
+
   function clearFinished(): void {
     rows.value = rows.value.filter(
       (r) =>
@@ -417,6 +469,13 @@ export function useFileTransfer(
         r.status === 'receiving' ||
         r.status === 'ready',
     )
+    // Nothing can offer those retries any more, so nothing should still be
+    // holding the files behind them.
+    for (const id of [...held.keys()]) {
+      if (!rows.value.some((r) => r.batchId === id)) {
+        held.delete(id)
+      }
+    }
   }
 
   function abortAll(reason: TransferReason): void {
@@ -425,6 +484,7 @@ export function useFileTransfer(
       settleBatch(batch.id, 'failed', reason)
     }
     batches.clear()
+    held.clear()
     pendingRequest = null
     void abortIncoming(reason)
     // A file that was offered but never saved can no longer be fetched.
@@ -463,7 +523,18 @@ export function useFileTransfer(
     abortAll('gone')
   })
 
-  return { rows, busyCount, failedCount, send, cancel, clearFinished, request, save: (r) => void save(r) }
+  return {
+    rows,
+    busyCount,
+    failedCount,
+    retryable,
+    send,
+    cancel,
+    retry,
+    clearFinished,
+    request,
+    save: (r) => void save(r),
+  }
 }
 
 // TransferError carries how a row should end, so one catch can settle a batch.

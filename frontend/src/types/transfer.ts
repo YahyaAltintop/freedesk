@@ -146,6 +146,41 @@ function asCount(value: unknown): number {
   return typeof value === 'number' && value >= 0 ? value : 0
 }
 
+// isRetryable decides whether a row that did not finish is worth offering to
+// send again. One place, because "can this be tried again" is a judgement
+// about each way a transfer ends and it should not be re-derived in a template.
+//
+// Only uploads. A download is asked for again with "Get files…", and the host
+// would have to re-offer it in any case.
+export function isRetryable(row: TransferRow): boolean {
+  if (row.dir !== 'up') {
+    return false
+  }
+  switch (row.status) {
+    // 'declined' is deliberately absent: putting the question back in front of
+    // somebody who just said no is the same prompt fatigue the host guards
+    // against from its own side.
+    case 'timeout':
+    case 'cancelled':
+      return true
+    case 'failed':
+      switch (row.reason) {
+        // These are decided by what the file is, so a second attempt is
+        // refused in exactly the same way.
+        case 'bad-name':
+        case 'too-large':
+        // The session that could have carried it is over, and these rows do
+        // not outlive it — a Retry here could only ever be a dead button.
+        case 'gone':
+          return false
+        default:
+          return true
+      }
+    default:
+      return false
+  }
+}
+
 // The sentence shown on a row that did not finish. Phrased as what happened to
 // the person waiting, not as the code path that produced it.
 export function reasonText(reason: TransferReason | undefined): string {
