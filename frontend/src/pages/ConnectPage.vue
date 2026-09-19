@@ -66,12 +66,25 @@ watch(sessionReady, (isReady) => {
   }
 })
 
-// The button takes the focus away from the video, which would drop control the
-// moment the viewer went fullscreen; give it straight back.
+// Going fullscreen must not cost the viewer the keyboard — it is the one action
+// meant to give them more of it. The button refuses the focus in the first
+// place (@mousedown.prevent), and this puts it back for the moves the browser
+// makes on its own during the transition: onto the fullscreen element on the
+// way in, back onto the button when the request is refused, both of them after
+// our own call rather than before it.
+function takeControlBack(): void {
+  focusStage()
+  requestAnimationFrame(focusStage)
+}
+
 async function handleFullscreen(): Promise<void> {
   await toggleFullscreen()
-  focusStage()
+  takeControlBack()
 }
+
+// F11 and the long press on Escape change fullscreen without going through the
+// button, and need the focus put back just the same.
+watch(isFullscreen, takeControlBack)
 
 const statusLabel = computed(() => {
   if (hostGone.value) {
@@ -191,6 +204,7 @@ onBeforeUnmount(() => {
               ? 'Leave fullscreen'
               : 'Fullscreen also sends browser shortcuts such as Ctrl+W to the remote computer'
           "
+          @mousedown.prevent
           @click="handleFullscreen"
         >
           {{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
