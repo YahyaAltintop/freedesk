@@ -113,6 +113,13 @@ it created would need a second offer that the signaling schema has no room for.
 on separate SCTP streams, which are not ordered against each other. A receiver
 that assigns "whichever arrived last" would put input on the wrong channel.
 
+The host creates `file` **before** `input` for the sake of viewers that predate
+this rule and do exactly that: the last channel they are offered is the one they
+keep, so it should be the input channel. Measured over five reconnects with
+Chrome and pion it held every time, but nothing in SCTP promises it. Treat it as
+a second line of defence — **the first is releasing the web app before the
+agent**, so a viewer never meets a host newer than itself.
+
 Binary and text frames on `file` are told apart by the transport's own flag —
 `DataChannelMessage.IsString` in pion, `typeof event.data === 'string'` in the
 browser. A viewer must set `binaryType = 'arraybuffer'` explicitly: the spec's
