@@ -201,7 +201,52 @@ absY = round(y * 65535)
 ```
 This lets the host position absolutely without knowing the screen resolution. Multi-monitor support is out of scope for v1 (the primary screen is assumed; the coordinates map to the primary display).
 
-## 4. Design notes
+## 4. File transfer (`file` channel)
+
+Control frames are JSON text; payload is raw binary frames of at most 32 KiB.
+Which is which is told from the transport's text/binary flag alone — chunks
+carry no header, because the channel is ordered and reliable and only one file
+is in flight per direction.
+
+| `t` | Sent by | Meaning |
+|-----|---------|---------|
+| `f-request` | viewer | Ask the host's operator to choose files to send |
+| `f-offer` | either | These files are on offer (`dir`: `up` = viewer→host, `down` = host→viewer) |
+| `f-accept` | receiver | Ready; `index` selects one file of a `down` offer |
+| `f-reject` | receiver | Declined, with a `reason` |
+| `f-complete` | sender | That was the last chunk of file `index` |
+| `f-done` | receiver | Written and safely stored |
+| `f-progress` | receiver | `sent` bytes have landed so far |
+| `f-cancel` / `f-error` | either | Stop now |
+
+**An offer covers a batch, and the operator is asked once per batch.** A prompt
+per file teaches people to click Yes without reading, which destroys the only
+real control in the system.
+
+**Normative host requirements.** These are observable on the wire, so they
+belong in the contract rather than in one implementation:
+
+- The protocol **never carries a path**. The viewer sends a name; the host sends
+  a base name. No message names a directory, and nothing lets the viewer
+  discover what exists on the host.
+- A declared size is a **claim**. The receiver counts what actually arrives and
+  aborts with `too-large` the moment the stream exceeds it.
+- Incoming files land in **one fixed folder** under a sanitised name, are
+  written to a temporary `.part` file and renamed only once complete, and
+  **never replace an existing file** — a taken name steps to ` (2)`, which the
+  viewer sees as `exists`.
+- Nothing survives the session: a partial file is deleted and a pending prompt
+  is dismissed when the channel closes.
+
+There is **no approval prompt before a download**: the host's native file picker
+is the consent. The viewer cannot name a path, only ask, and what leaves the
+machine is what the operator selected in a dialog they could have cancelled.
+Cancelling it is a `f-reject` with `denied`.
+
+Resuming is not supported. `offset` exists in the schema and is always `0`, so
+adding it later does not change the contract.
+
+## 5. Design notes
 - **Why normalized coordinates?** The viewer's window and the host's screen are at different resolutions; `[0,1]` makes both sides resolution-independent.
 - **Why `code` (not key)?** Remote control requires physical key mapping; `code` is independent of keyboard layout and maps reliably to a virtual key.
 - **Why keep `input` reliable and ordered?** Correctness first: a dropped `ku` leaves a key stuck down on the host, and a reordered `md`/`mu` pair turns a click into a drag. A separate `ordered:false, maxRetransmits:0` channel for high-frequency `m` events remains a possible optimisation.

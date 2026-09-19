@@ -9,7 +9,7 @@ import { useFullscreen } from '@/composables/useFullscreen'
 import { useFileTransfer } from '@/composables/useFileTransfer'
 import { useFileDrop } from '@/composables/useFileDrop'
 import TransferPanel from '@/components/TransferPanel.vue'
-import { CAP_FILE_SEND } from '@/types/protocol'
+import { CAP_FILE_RECV, CAP_FILE_SEND } from '@/types/protocol'
 import { useServerNow } from '@/composables/useServerNow'
 import { isHostOnline } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
@@ -75,9 +75,13 @@ const { isFullscreen, supported: fullscreenSupported, toggle: toggleFullscreen }
 const transfersAvailable = computed(
   () => state.value === 'connected' && fileReady.value && hostCaps.value.has(CAP_FILE_SEND),
 )
-const { rows, busyCount, failedCount, send, cancel, clearFinished } = useFileTransfer(
-  fileChannel,
-  fileReady,
+const { rows, busyCount, failedCount, send, cancel, clearFinished, request, save } =
+  useFileTransfer(fileChannel, fileReady)
+
+// Only offered when the host said it can open a picker: without one the button
+// would be something that can never do anything. Console-mode agents say no.
+const canReceive = computed(
+  () => transfersAvailable.value && hostCaps.value.has(CAP_FILE_RECV),
 )
 // Drops land on the whole stage, not just the video: a file dropped on the
 // toolbar would otherwise navigate the browser away and end the session.
@@ -375,8 +379,11 @@ onBeforeUnmount(() => {
         class="fd-panel-anchor position-absolute end-0 bottom-0 m-2 m-md-3"
         :rows="rows"
         :refusal="refusal"
+        :can-receive="canReceive"
         @close="togglePanel"
         @pick="pickFiles"
+        @request="request"
+        @save="save"
         @cancel="cancel"
         @clear="clearFinished"
       />

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -14,7 +13,6 @@ import (
 // with its own deadline.
 type Console struct {
 	timeout time.Duration
-	mu      sync.Mutex
 	lines   chan string
 }
 
@@ -41,8 +39,8 @@ func (c *Console) readLoop() {
 // Only an explicit yes ("y", "yes") approves; everything else —
 // including silence — rejects.
 func (c *Console) Ask(ctx context.Context, p Prompt) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	uiMu.Lock()
+	defer uiMu.Unlock()
 
 	// Drop any line typed after a previous prompt already timed out, so a
 	// stale answer cannot approve the wrong request.

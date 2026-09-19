@@ -121,6 +121,7 @@ func run() error {
 
 	// --- Incoming requests -----------------------------------------------------
 	approver := consent.New(cfg.ApprovalMode, approvalTimeout)
+	picker := consent.NewFilePicker(cfg.ApprovalMode)
 	log.Printf("[host-agent] screen capture will use: %s", capture.NewScreenCapture(cfg.FFmpegPath).Binary())
 
 	// Say where accepted files would go before anyone sends one — the operator
@@ -131,7 +132,7 @@ func run() error {
 	log.Printf("[host-agent] files you accept will be saved to: %s", downloads)
 	transfer.SweepPartials(downloads)
 
-	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath, appVersion)
+	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath, appVersion, picker)
 	inbox := session.NewInbox(rtdb, manager.UID())
 
 	var sessions sessionTracker

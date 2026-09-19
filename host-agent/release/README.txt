@@ -22,6 +22,9 @@ If the other person sends you files, a second window asks first. Files you
 accept are saved to your Downloads\FreeDesk folder. Nothing is written
 without your click, and an existing file is never replaced.
 
+If they ask you for files, a file picker opens on this computer. Only what
+you choose there is sent, and cancelling sends nothing.
+
 Files:
   freedesk-host.exe   the agent (needs no installation)
   ffmpeg.exe          screen capture and video encoding (unmodified official

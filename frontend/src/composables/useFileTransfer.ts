@@ -8,6 +8,7 @@ import {
   SEND_LOW_WATER,
   TRANSFER_APPROVAL_TIMEOUT_MS,
 } from '@/constants/webrtc'
+import { createSink, SinkTooLargeError, type FileSink } from '@/utils/fileSink'
 import {
   parseTransferMessage,
   type TransferOutbound,
@@ -25,6 +26,11 @@ export interface FileTransfer {
   send: (files: File[]) => void
   // Stops a batch, whether it is waiting for an answer or already sending.
   cancel: (batchId: string) => void
+  // Asks the host's operator to pick files to send here.
+  request: () => void
+  // Saves one offered file. MUST be called from a click: the browser's save
+  // dialog is refused without a user gesture.
+  save: (row: TransferRow) => void
   // Forgets finished rows.
   clearFinished: () => void
 }
@@ -53,7 +59,10 @@ export function useFileTransfer(
   const batches = new Map<string, Batch>()
 
   const busyCount = computed(
-    () => rows.value.filter((r) => r.status === 'awaiting' || r.status === 'sending').length,
+    () =>
+      rows.value.filter(
+        (r) => r.status === 'awaiting' || r.status === 'sending' || r.status === 'receiving',
+      ).length,
   )
   const failedCount = computed(
     () =>
@@ -86,7 +95,8 @@ export function useFileTransfer(
 
   function onMessage(event: MessageEvent): void {
     if (typeof event.data !== 'string') {
-      return // the host sends no payload in this direction yet
+      void onChunk(event.data as ArrayBuffer)
+      return
     }
     const message = parseTransferMessage(event.data)
     if (!message) {
@@ -117,11 +127,131 @@ export function useFileTransfer(
         }
         break
       }
+      case 'f-offer':
+        if (message.dir === 'down') {
+          offered(message.id, message.files)
+        }
+        break
+      case 'f-complete':
+        void finishIncoming(message.id, message.index, message.size)
+        break
       case 'f-error':
         batch?.abort.abort()
         settleBatch(message.id, 'failed', message.reason)
+        // The same frame ends an incoming file: the host uses it for whichever
+        // direction was in flight.
+        void abortIncoming(message.reason)
         break
     }
+  }
+
+  // --- host → viewer ------------------------------------------------------
+
+  // The file currently arriving. One at a time: the viewer accepts a file, the
+  // host streams it, and only then is the next one asked for.
+  let incoming: { batchId: string; index: number; sink: FileSink; row: TransferRow } | null = null
+  let pendingRequest: string | null = null
+
+  function request(): void {
+    const ch = channel.value
+    if (!ready.value || !ch || ch.readyState !== 'open' || pendingRequest) {
+      return
+    }
+    pendingRequest = `r${++nextBatch}-${Date.now().toString(36)}`
+    post({ t: 'f-request', id: pendingRequest })
+  }
+
+  // The operator picked files. They are listed but nothing is fetched until
+  // someone clicks Save — so a request never pulls bytes on its own.
+  function offered(batchId: string, files: { name: string; size: number }[]): void {
+    pendingRequest = null
+    for (const [index, file] of files.entries()) {
+      rows.value.push({
+        batchId,
+        index,
+        name: file.name,
+        size: file.size,
+        sent: 0,
+        status: 'ready',
+        dir: 'down',
+      })
+    }
+  }
+
+  async function save(row: TransferRow): Promise<void> {
+    if (row.dir !== 'down' || row.status !== 'ready' || incoming) {
+      return
+    }
+    let sink: FileSink
+    try {
+      // Inside the click, so the save dialog is allowed to open.
+      sink = await createSink(row.name, row.size)
+    } catch (err) {
+      if (err instanceof SinkTooLargeError) {
+        row.status = 'failed'
+        row.reason = 'no-fsa'
+      }
+      // Anything else is the viewer dismissing the save dialog: leave the row
+      // as it was so they can try again.
+      return
+    }
+    row.status = 'receiving'
+    row.sent = 0
+    incoming = { batchId: row.batchId, index: row.index, sink, row }
+    post({ t: 'f-accept', id: row.batchId, index: row.index })
+  }
+
+  async function onChunk(chunk: ArrayBuffer): Promise<void> {
+    if (!incoming) {
+      return // payload with nothing accepted behind it
+    }
+    const active = incoming
+    try {
+      // Awaited: this is what stops the writes queueing up and putting the
+      // memory back that streaming to disk just saved.
+      await active.sink.write(chunk)
+    } catch {
+      await abortIncoming('io')
+      return
+    }
+    if (incoming === active) {
+      active.row.sent = Math.min(active.row.sent + chunk.byteLength, active.row.size)
+    }
+  }
+
+  async function finishIncoming(batchId: string, index: number, size: number): Promise<void> {
+    if (!incoming || incoming.batchId !== batchId || incoming.index !== index) {
+      return
+    }
+    const active = incoming
+    incoming = null
+    if (active.row.sent !== size) {
+      // Fewer bytes arrived than the host says it sent.
+      await active.sink.abort()
+      active.row.status = 'failed'
+      active.row.reason = 'io'
+      return
+    }
+    try {
+      await active.sink.close()
+    } catch {
+      active.row.status = 'failed'
+      active.row.reason = 'io'
+      return
+    }
+    active.row.status = 'done'
+    post({ t: 'f-done', id: batchId, index })
+  }
+
+  async function abortIncoming(reason: TransferReason): Promise<void> {
+    if (!incoming) {
+      return
+    }
+    const active = incoming
+    incoming = null
+    await active.sink.abort()
+    active.row.status = 'failed'
+    active.row.reason = reason
   }
 
   function send(files: File[]): void {
@@ -142,6 +272,7 @@ export function useFileTransfer(
         size: file.size,
         sent: 0,
         status: 'awaiting',
+        dir: 'up',
       })
     }
 
@@ -276,7 +407,13 @@ export function useFileTransfer(
   }
 
   function clearFinished(): void {
-    rows.value = rows.value.filter((r) => r.status === 'awaiting' || r.status === 'sending')
+    rows.value = rows.value.filter(
+      (r) =>
+        r.status === 'awaiting' ||
+        r.status === 'sending' ||
+        r.status === 'receiving' ||
+        r.status === 'ready',
+    )
   }
 
   function abortAll(reason: TransferReason): void {
@@ -285,6 +422,15 @@ export function useFileTransfer(
       settleBatch(batch.id, 'failed', reason)
     }
     batches.clear()
+    pendingRequest = null
+    void abortIncoming(reason)
+    // A file that was offered but never saved can no longer be fetched.
+    for (const row of rows.value) {
+      if (row.status === 'ready') {
+        row.status = 'failed'
+        row.reason = reason
+      }
+    }
   }
 
   watch(
@@ -314,7 +460,7 @@ export function useFileTransfer(
     abortAll('gone')
   })
 
-  return { rows, busyCount, failedCount, send, cancel, clearFinished }
+  return { rows, busyCount, failedCount, send, cancel, clearFinished, request, save: (r) => void save(r) }
 }
 
 // TransferError carries how a row should end, so one catch can settle a batch.

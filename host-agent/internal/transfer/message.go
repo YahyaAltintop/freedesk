@@ -10,6 +10,7 @@ import (
 // and a frame arriving on the wrong one must be recognisably foreign rather
 // than accidentally meaningful.
 const (
+	TypeRequest  = "f-request"  // viewer: please offer me something to download
 	TypeOffer    = "f-offer"    // sender: I have this file for you
 	TypeAccept   = "f-accept"   // receiver: ready, start sending
 	TypeReject   = "f-reject"   // receiver: no, and why
@@ -147,7 +148,7 @@ func (m Msg) validate() error {
 		if m.TotalSize() > MaxBatchBytes {
 			return ErrBadMessage
 		}
-	case TypeAccept, TypeReject, TypeComplete, TypeDone, TypeProgress, TypeCancel, TypeError:
+	case TypeRequest, TypeAccept, TypeReject, TypeComplete, TypeDone, TypeProgress, TypeCancel, TypeError:
 		if m.ID == "" {
 			return ErrBadMessage
 		}

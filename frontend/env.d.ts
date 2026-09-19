@@ -41,3 +41,24 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+// File System Access API (https://wicg.github.io/file-system-access/): lets a
+// page stream a download straight to disk instead of holding it in memory.
+// Chromium-only and not in TypeScript's DOM library, hence the optional member.
+interface FileSystemWritableFileStream {
+  write(data: ArrayBuffer | Blob | string): Promise<void>
+  close(): Promise<void>
+  abort(reason?: unknown): Promise<void>
+}
+
+interface FileSystemFileHandleWithWrite {
+  createWritable(): Promise<FileSystemWritableFileStream>
+}
+
+interface SaveFilePickerOptions {
+  suggestedName?: string
+}
+
+interface Window {
+  showSaveFilePicker?(options?: SaveFilePickerOptions): Promise<FileSystemFileHandleWithWrite>
+}

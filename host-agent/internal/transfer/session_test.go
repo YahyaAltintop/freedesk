@@ -15,11 +15,21 @@ import (
 
 // fakeChannel records what the host sends, standing in for the DataChannel.
 type fakeChannel struct {
-	mu   sync.Mutex
-	sent []Msg
+	mu      sync.Mutex
+	sent    []Msg
+	binary  int
+	largest int
 }
 
-func (c *fakeChannel) Send([]byte) error { return nil }
+func (c *fakeChannel) Send(b []byte) error {
+	c.mu.Lock()
+	c.binary += len(b)
+	if len(b) > c.largest {
+		c.largest = len(b)
+	}
+	c.mu.Unlock()
+	return nil
+}
 func (c *fakeChannel) SendText(s string) error {
 	var m Msg
 	if err := json.Unmarshal([]byte(s), &m); err != nil {
@@ -49,6 +59,19 @@ func (c *fakeChannel) types() []string {
 	return out
 }
 
+// binaryBytes is how much payload the host streamed.
+func (c *fakeChannel) binaryBytes() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.binary
+}
+
+func (c *fakeChannel) largestBinary() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.largest
+}
+
 func (c *fakeChannel) last() (Msg, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -57,6 +80,10 @@ func (c *fakeChannel) last() (Msg, bool) {
 	}
 	return c.sent[len(c.sent)-1], true
 }
+
+// waitForQuiet gives a goroutine long enough to have replied if it were going
+// to, for the cases where the correct behaviour is silence.
+func waitForQuiet() { time.Sleep(150 * time.Millisecond) }
 
 // waitFor polls until cond holds, so a test never depends on a fixed sleep.
 func waitFor(t *testing.T, what string, cond func() bool) {
@@ -96,11 +123,16 @@ func (a *fakeApprover) AskFiles(ctx context.Context, files []FileOffer, folder s
 // newTestSession wires a session onto a throwaway directory.
 func newTestSession(t *testing.T, ap Approver) (*Session, *fakeChannel, string) {
 	t.Helper()
+	return newTestSessionWith(t, ap, nil)
+}
+
+func newTestSessionWith(t *testing.T, ap Approver, pk Picker) (*Session, *fakeChannel, string) {
+	t.Helper()
 	root := filepath.Join(t.TempDir(), folderName)
 	ch := &fakeChannel{}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	s := NewSession(ctx, ap, func(string, ...any) {})
+	s := NewSession(ctx, ap, pk, func(string, ...any) {})
 	s.dest = &Dest{root: root}
 	s.Attach(ch)
 	t.Cleanup(s.Close)

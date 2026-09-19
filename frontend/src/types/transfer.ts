@@ -23,12 +23,16 @@ export interface FileMeta {
 // Outbound: what this viewer sends.
 export type TransferOutbound =
   | { t: 'f-offer'; id: string; dir: TransferDirection; files: FileMeta[] }
-  | { t: 'f-accept'; id: string }
+  | { t: 'f-request'; id: string }
+  | { t: 'f-accept'; id: string; index?: number }
+  | { t: 'f-done'; id: string; index: number }
   | { t: 'f-cancel'; id: string; reason?: TransferReason }
 
 // Inbound: what the host sends back.
 export type TransferInbound =
   | { t: 'f-accept'; id: string }
+  | { t: 'f-offer'; id: string; dir: TransferDirection; files: FileMeta[] }
+  | { t: 'f-complete'; id: string; index: number; size: number }
   | { t: 'f-reject'; id: string; reason: TransferReason }
   | { t: 'f-progress'; id: string; index: number; sent: number }
   | { t: 'f-done'; id: string; index: number }
@@ -36,8 +40,10 @@ export type TransferInbound =
 
 // What a transfer row is doing, in the order it usually happens.
 export type TransferStatus =
-  | 'awaiting' // offered; the other person is deciding
+  | 'awaiting' // we offered it; the other person is deciding
+  | 'ready' // they offered it; waiting for a click to save it here
   | 'sending'
+  | 'receiving'
   | 'done'
   | 'declined' // they said no
   | 'timeout' // they never answered
@@ -53,6 +59,8 @@ export interface TransferRow {
   sent: number
   status: TransferStatus
   reason?: TransferReason
+  // 'down' rows came from the host and are saved with a click.
+  dir: TransferDirection
 }
 
 // parseTransferMessage narrows an inbound frame, or returns null for anything
@@ -75,6 +83,15 @@ export function parseTransferMessage(raw: string): TransferInbound | null {
   switch (m.t) {
     case 'f-accept':
       return { t: 'f-accept', id: m.id }
+    case 'f-offer': {
+      const files = Array.isArray(m.files) ? m.files.map(asFileMeta).filter(isFileMeta) : []
+      if (files.length === 0 || (m.dir !== 'up' && m.dir !== 'down')) {
+        return null
+      }
+      return { t: 'f-offer', id: m.id, dir: m.dir, files }
+    }
+    case 'f-complete':
+      return { t: 'f-complete', id: m.id, index: asIndex(m.index), size: asCount(m.size) }
     case 'f-reject':
     case 'f-error':
       return { t: m.t, id: m.id, reason: asReason(m.reason) }
@@ -85,6 +102,24 @@ export function parseTransferMessage(raw: string): TransferInbound | null {
     default:
       return null
   }
+}
+
+function asFileMeta(value: unknown): FileMeta | null {
+  if (typeof value !== 'object' || value === null) {
+    return null
+  }
+  const f = value as Record<string, unknown>
+  if (typeof f.name !== 'string' || f.name === '') {
+    return null
+  }
+  if (typeof f.size !== 'number' || !Number.isFinite(f.size) || f.size <= 0) {
+    return null
+  }
+  return { name: f.name, size: f.size }
+}
+
+function isFileMeta(value: FileMeta | null): value is FileMeta {
+  return value !== null
 }
 
 function asReason(value: unknown): TransferReason {

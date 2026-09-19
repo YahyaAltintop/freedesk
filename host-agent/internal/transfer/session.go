@@ -60,6 +60,7 @@ type receiving struct {
 type Session struct {
 	dest     *Dest
 	approver Approver
+	picker   Picker
 	logf     func(string, ...any)
 
 	ctx    context.Context
@@ -72,8 +73,12 @@ type Session struct {
 	chMu sync.Mutex
 	ch   Channel
 
+	// low is signalled when the send queue drains past the low-water mark.
+	low chan struct{}
+
 	mu      sync.Mutex
 	rx      *receiving
+	tx      *sending
 	pending bool  // an offer is in front of the operator right now
 	failed  *Msg  // set when opening a file failed under the lock
 	files   int   // accepted this session, against MaxSessionFiles
@@ -83,9 +88,17 @@ type Session struct {
 
 // NewSession builds the transfer handler for one session. Nothing touches the
 // disk until a batch is accepted.
-func NewSession(ctx context.Context, approver Approver, logf func(string, ...any)) *Session {
+func NewSession(ctx context.Context, approver Approver, picker Picker, logf func(string, ...any)) *Session {
 	ctx, cancel := context.WithCancel(ctx)
-	return &Session{dest: NewDest(), approver: approver, logf: logf, ctx: ctx, cancel: cancel}
+	return &Session{
+		dest:     NewDest(),
+		approver: approver,
+		picker:   picker,
+		logf:     logf,
+		low:      make(chan struct{}, 1),
+		ctx:      ctx,
+		cancel:   cancel,
+	}
 }
 
 // Root is the folder accepted files are written to.
@@ -96,6 +109,17 @@ func (s *Session) Attach(ch Channel) {
 	s.chMu.Lock()
 	s.ch = ch
 	s.chMu.Unlock()
+
+	// Set once, because pion replaces the handler rather than adding to it.
+	ch.SetBufferedAmountLowThreshold(lowWater)
+	ch.OnBufferedAmountLow(func() {
+		// Never block pion's goroutine: one pending wake-up is enough, and the
+		// pump re-reads the queue anyway.
+		select {
+		case s.low <- struct{}{}:
+		default:
+		}
+	})
 }
 
 // Handle takes one frame from the channel. isText separates a control frame
@@ -119,8 +143,15 @@ func (s *Session) handleControl(data []byte) {
 		if m.Dir == DirUp {
 			go s.offered(m)
 		}
+	case TypeRequest:
+		go s.requested(m.ID)
+	case TypeAccept:
+		// The viewer accepting means it is ready for one file of what this
+		// host offered; an accept for anything else is ignored.
+		go s.accepted(m.ID, m.Index)
 	case TypeCancel, TypeError:
 		s.abort(m.ID, "the viewer cancelled")
+		s.cancelSend(m.ID)
 	default:
 		// Unknown types are ignored on purpose (docs/PROTOCOL.md §2.2).
 	}
@@ -369,6 +400,7 @@ func (s *Session) Close() {
 	}
 	s.closed = true
 	s.abortLocked("the session ended")
+	s.abortSendLocked()
 	s.mu.Unlock()
 	s.cancel()
 }

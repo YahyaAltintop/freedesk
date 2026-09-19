@@ -64,6 +64,9 @@ type Coordinator struct {
 	ownerUID   string
 	cfg        webrtc.Config
 	ffmpegPath string
+	// picker lets the operator choose files to send. Nil-safe: a build or a
+	// mode without one simply never advertises downloads.
+	picker consent.FilePicker
 	// version is announced to the viewer in the greeting, so it can explain
 	// what an old agent is missing instead of just disabling a button.
 	version string
@@ -75,15 +78,24 @@ type Coordinator struct {
 // NewCoordinator builds a coordinator for the authenticated owner, with the
 // ICE config and the ffmpeg executable to use for screen capture (empty =
 // "ffmpeg" from PATH).
-func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, ffmpegPath, version string) *Coordinator {
-	return &Coordinator{rtdb: rtdb, ownerUID: ownerUID, cfg: cfg, ffmpegPath: ffmpegPath, version: version}
+func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, ffmpegPath, version string, picker consent.FilePicker) *Coordinator {
+	return &Coordinator{
+		rtdb: rtdb, ownerUID: ownerUID, cfg: cfg,
+		ffmpegPath: ffmpegPath, version: version, picker: picker,
+	}
 }
 
 // capabilities lists what this agent can do, for the greeting. It is built
 // from what the session actually wires up, so the list cannot drift from the
 // code: a viewer that sees a capability here can rely on it being handled.
 func (c *Coordinator) capabilities() []string {
-	return []string{protocol.CapFileSend}
+	caps := []string{protocol.CapFileSend}
+	// Only claimed where there is a picker to honour it: without one the viewer
+	// would offer a button that can never do anything.
+	if c.picker != nil && c.picker.Available() {
+		caps = append(caps, protocol.CapFileRecv)
+	}
+	return caps
 }
 
 // Run handles one request from approval to the end of the connection. It is
@@ -191,7 +203,7 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 	// One transfer handler per session, for the same reason: whatever it was
 	// writing when the viewer left must not survive the session either.
 	transfers := transfer.NewSession(ctx, fileApprover{approver: approver, viewerUID: req.ViewerUID},
-		func(format string, args ...any) { log.Printf(format, args...) })
+		c.picker, func(format string, args ...any) { log.Printf(format, args...) })
 
 	hooks := webrtc.Hooks{
 		// One callback per channel of the session; what a channel carries is

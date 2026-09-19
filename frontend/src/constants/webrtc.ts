@@ -48,5 +48,11 @@ export const TRANSFER_APPROVAL_TIMEOUT_MS = 60_000
 // Limits, mirroring the Go transfer package. Checked here only to fail a file
 // immediately instead of after a round trip; the host enforces them for real.
 export const MAX_FILE_BYTES = 512 * 1024 * 1024
+// Per file coming the other way. Lower, because a browser without the File
+// System Access API has to hold the whole thing in memory first.
+export const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
+// The most a browser that cannot stream to disk will be asked to hold. Past
+// this the file is refused with an explanation rather than risking the tab.
+export const BLOB_FALLBACK_MAX_BYTES = 64 * 1024 * 1024
 export const MAX_BATCH_FILES = 32
 export const MAX_BATCH_BYTES = 1024 * 1024 * 1024

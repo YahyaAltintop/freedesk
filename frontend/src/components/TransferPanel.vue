@@ -5,18 +5,19 @@ import { reasonText, type TransferRow } from '@/types/transfer'
 const props = defineProps<{
   rows: TransferRow[]
   refusal: string | null
+  canReceive: boolean
 }>()
 
 const emit = defineEmits<{
   close: []
   pick: []
+  request: []
+  save: [row: TransferRow]
   cancel: [batchId: string]
   clear: []
 }>()
 
-const hasFinished = computed(() =>
-  props.rows.some((r) => r.status !== 'awaiting' && r.status !== 'sending'),
-)
+const hasFinished = computed(() => props.rows.some((r) => !isBusy(r) && r.status !== 'ready'))
 
 // Newest first: a panel that grows downwards pushes what just happened out of
 // sight.
@@ -37,10 +38,13 @@ function statusText(row: TransferRow): string {
   switch (row.status) {
     case 'awaiting':
       return 'Waiting for the other person to accept…'
+    case 'ready':
+      return `Ready to save · ${sizeText(row.size)}`
     case 'sending':
+    case 'receiving':
       return `${sizeText(row.sent)} of ${sizeText(row.size)}`
     case 'done':
-      return `Sent · ${sizeText(row.size)}`
+      return row.dir === 'down' ? `Saved · ${sizeText(row.size)}` : `Sent · ${sizeText(row.size)}`
     case 'cancelled':
       return 'Cancelled'
     case 'timeout':
@@ -53,7 +57,7 @@ function statusText(row: TransferRow): string {
 }
 
 function isBusy(row: TransferRow): boolean {
-  return row.status === 'awaiting' || row.status === 'sending'
+  return row.status === 'awaiting' || row.status === 'sending' || row.status === 'receiving'
 }
 </script>
 
@@ -73,16 +77,33 @@ function isBusy(row: TransferRow): boolean {
     </header>
 
     <div class="fd-panel-section px-3 py-2">
-      <button
-        class="btn btn-fd-ghost btn-sm w-100"
-        type="button"
-        @mousedown.prevent
-        @click="emit('pick')"
-      >
-        Choose files…
-      </button>
+      <div class="d-flex gap-2">
+        <button
+          class="btn btn-fd-ghost btn-sm flex-fill"
+          type="button"
+          @mousedown.prevent
+          @click="emit('pick')"
+        >
+          Send files…
+        </button>
+        <button
+          class="btn btn-fd-ghost btn-sm flex-fill"
+          type="button"
+          :disabled="!canReceive"
+          :title="
+            canReceive
+              ? 'A file picker opens on the other computer'
+              : 'The other computer cannot open a file picker'
+          "
+          @mousedown.prevent
+          @click="emit('request')"
+        >
+          Get files…
+        </button>
+      </div>
       <p class="fd-panel-note mb-0 mt-2">
-        Or drag them onto the screen. They are saved only after the other person accepts.
+        Drag files onto the screen to send them. To receive, the person at the other computer
+        chooses what to share.
       </p>
     </div>
 
@@ -93,7 +114,16 @@ function isBusy(row: TransferRow): boolean {
         <div class="d-flex align-items-center justify-content-between gap-2">
           <span class="fd-row-name" :title="row.name">{{ row.name }}</span>
           <button
-            v-if="isBusy(row)"
+            v-if="row.status === 'ready'"
+            class="btn btn-sm fd-row-save"
+            type="button"
+            @mousedown.prevent
+            @click="emit('save', row)"
+          >
+            Save
+          </button>
+          <button
+            v-else-if="isBusy(row) && row.dir === 'up'"
             class="btn btn-sm fd-row-cancel"
             type="button"
             @mousedown.prevent
@@ -103,7 +133,7 @@ function isBusy(row: TransferRow): boolean {
           </button>
         </div>
         <div
-          v-if="row.status === 'sending'"
+          v-if="row.status === 'sending' || row.status === 'receiving'"
           class="progress mt-1"
           role="progressbar"
           :aria-valuenow="percent(row)"
@@ -199,6 +229,16 @@ function isBusy(row: TransferRow): boolean {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.fd-row-save {
+  font-size: 0.72rem;
+  padding: 0.05rem 0.5rem;
+  flex-shrink: 0;
+  color: #fff;
+  background-image: var(--fd-gradient);
+  border: 0;
+  border-radius: 8px;
 }
 
 .fd-row-cancel {

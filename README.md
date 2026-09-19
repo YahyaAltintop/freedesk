@@ -24,9 +24,10 @@ A small, free remote desktop: see and control another Windows PC from your brows
 2. Type the 9-digit code and press **Connect**.
 3. Wait for the other person to click Yes. The remote screen appears; click it to control. **End Session** disconnects.
 4. To send files, drag them onto the remote screen (or use **Files**). The other person is asked once per batch, and accepted files land in their `Downloads\FreeDesk` folder — nothing is ever overwritten.
+5. To receive files, press **Files → Get files…**. A file picker opens on the other computer; whatever that person chooses appears in your panel with a **Save** button.
 
 ### What it does not do (yet)
-Windows hosts only (viewer runs in any modern browser) · primary monitor only · no audio · no clipboard sharing yet · sending files needs host agent 0.3.0 or newer, and only files, not folders · no unattended access (someone must click Yes) · cannot pass UAC prompts or the lock screen · some networks (mobile data, CGNAT) cannot connect directly because there is no relay server.
+Windows hosts only (viewer runs in any modern browser) · primary monitor only · no audio · no clipboard sharing yet · file transfer needs host agent 0.3.0 or newer, and only files, not folders · no unattended access (someone must click Yes) · cannot pass UAC prompts or the lock screen · some networks (mobile data, CGNAT) cannot connect directly because there is no relay server.
 
 ---
 

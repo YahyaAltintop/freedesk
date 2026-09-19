@@ -39,7 +39,7 @@ var (
 // nobody has to find the console window and type. One question at a time.
 type Dialog struct {
 	timeout time.Duration
-	mu      sync.Mutex
+	mu      sync.Mutex // guards seq only; the operator's attention is uiMu
 	seq     uint64
 }
 
@@ -51,12 +51,15 @@ func NewDialog(timeout time.Duration) *Dialog {
 // Ask blocks until the operator clicks Yes or No, the timeout passes, or ctx
 // ends (the viewer withdrew the request). Only an explicit Yes approves.
 func (d *Dialog) Ask(ctx context.Context, p Prompt) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	uiMu.Lock()
+	defer uiMu.Unlock()
 
+	d.mu.Lock()
 	d.seq++
+	seq := d.seq
+	d.mu.Unlock()
 	// A unique title lets us find and dismiss exactly this box on withdrawal.
-	title := p.Title(d.seq)
+	title := p.Title(seq)
 	text := p.Text(d.timeout)
 	// Echo the question to the console too: the operator may be looking there,
 	// and it leaves a record of what was asked.
