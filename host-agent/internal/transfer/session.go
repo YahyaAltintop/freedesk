@@ -200,6 +200,12 @@ func (s *Session) offered(m Msg) {
 		return
 	}
 
+	if !s.dest.Room(m.TotalSize()) {
+		s.logf("[transfer] refused a batch: not enough room in %s", s.dest.Root())
+		s.send(Reject(m.ID, ReasonNoSpace))
+		return
+	}
+
 	if !s.approver.AskFiles(s.ctx, offers, s.dest.Root()) {
 		s.logf("[transfer] batch %s declined", m.ID)
 		s.send(Reject(m.ID, ReasonDenied))
@@ -319,11 +325,11 @@ func (s *Session) handleChunk(data []byte) {
 		return
 	}
 	if _, err := rx.file.Write(data); err != nil {
-		id := rx.id
+		id, reason := rx.id, writeReason(err)
 		s.logf("[transfer] write failed: %v", err)
 		s.abortLocked("the disk refused the write")
 		s.mu.Unlock()
-		s.send(Fail(id, ReasonIO))
+		s.send(Fail(id, reason))
 		return
 	}
 	rx.written += int64(len(data))
@@ -355,9 +361,10 @@ func (s *Session) finishFile() {
 	id, index, name, size := rx.id, rx.index, rx.names[rx.index], rx.written
 	if err := Finish(rx.file, rx.path); err != nil {
 		s.logf("[transfer] could not complete %q: %v", name, err)
+		reason := writeReason(err)
 		s.abortLocked("the file could not be completed")
 		s.mu.Unlock()
-		s.send(Fail(id, ReasonIO))
+		s.send(Fail(id, reason))
 		return
 	}
 	rx.file = nil
@@ -388,6 +395,16 @@ func (s *Session) finishFile() {
 	if len(pasted) > 0 && s.onPasted != nil {
 		s.onPasted(pasted)
 	}
+}
+
+// writeReason names what stopped a write. A disk that filled up is worth
+// separating from every other I/O failure: it is the one the person at the
+// other end can actually do something about.
+func writeReason(err error) string {
+	if diskFull(err) {
+		return ReasonNoSpace
+	}
+	return ReasonIO
 }
 
 // abort throws away whatever is being written for the given batch. An empty id

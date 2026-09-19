@@ -30,7 +30,12 @@ const (
 var ErrTooManyCollisions = errors.New("too many files with that name")
 
 // Dest is where one session writes the files it accepts.
-type Dest struct{ root string }
+type Dest struct {
+	root string
+	// free reports the writable bytes left on the volume root lives on.
+	// Replaced in tests; nil means ask the operating system.
+	free func(string) (uint64, bool)
+}
 
 // NewDest returns the destination for accepted files. The directory is NOT
 // created here: an agent nobody has sent a file to should leave nothing behind.
@@ -39,6 +44,22 @@ func NewDest() *Dest { return &Dest{root: downloadRoot()} }
 // Root reports the folder accepted files are written to, for the approval
 // prompt and the startup log. The operator is told this before they say yes.
 func (d *Dest) Root() string { return d.root }
+
+// Room reports whether a batch of need bytes can be written here.
+//
+// Asked before the operator is, so a batch that cannot possibly land is
+// refused without spending the one thing this design cannot get more of: the
+// operator's willingness to read a window. It is advisory, not a guarantee —
+// another process can take the space between this answer and the write, which
+// is why the write path recognises a full disk as well.
+func (d *Dest) Room(need int64) bool {
+	free := d.free
+	if free == nil {
+		free = freeSpace
+	}
+	bytes, known := free(nearestExisting(d.root))
+	return hasRoom(bytes, known, need)
+}
 
 // Create makes the destination folder if needed and opens the ".part" file that
 // `name` will be written to, returning it with the final path it will be

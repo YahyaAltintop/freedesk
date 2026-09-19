@@ -423,3 +423,38 @@ func assertNoPartials(t *testing.T, root string) {
 		}
 	}
 }
+
+// A batch that cannot possibly land is refused before the operator is asked.
+// Spending a window on a transfer that is going to fail anyway is exactly the
+// prompt fatigue the one-question-per-batch rule exists to avoid.
+func TestBatchTooBigForTheDiskIsRefusedWithoutAskingTheOperator(t *testing.T) {
+	ap := &fakeApprover{answer: true, asked: make(chan []FileOffer, 1)}
+	s, ch, root := newTestSession(t, ap)
+	s.dest = &Dest{root: root, free: func(string) (uint64, bool) { return 4 << 20, true }}
+
+	s.Handle(offer("b1", FileMeta{Name: "big.iso", Size: 64 << 20}), true)
+	waitFor(t, "the refusal", func() bool { m, ok := ch.last(); return ok && m.T == TypeReject })
+
+	m, _ := ch.last()
+	if m.Reason != ReasonNoSpace {
+		t.Fatalf("refused with %q, expected %q", m.Reason, ReasonNoSpace)
+	}
+	if len(ap.asked) != 0 {
+		t.Fatal("the operator was asked about a batch that could never have been written")
+	}
+	assertNoPartials(t, root)
+}
+
+// The margin must not refuse something that comfortably fits, or the check
+// turns into a transfer size limit nobody agreed to.
+func TestBatchThatFitsIsStillOffered(t *testing.T) {
+	ap := &fakeApprover{answer: true, asked: make(chan []FileOffer, 1)}
+	s, ch, root := newTestSession(t, ap)
+	s.dest = &Dest{root: root, free: func(string) (uint64, bool) { return 1 << 30, true }}
+
+	s.Handle(offer("b1", FileMeta{Name: "fits.bin", Size: 8 << 20}), true)
+	waitFor(t, "the accept", func() bool { m, ok := ch.last(); return ok && m.T == TypeAccept })
+	if len(ap.asked) != 1 {
+		t.Fatal("the operator should have been asked about a batch that fits")
+	}
+}

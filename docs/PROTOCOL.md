@@ -233,10 +233,30 @@ belong in the contract rather than in one implementation:
   aborts with `too-large` the moment the stream exceeds it.
 - Incoming files land in **one fixed folder** under a sanitised name, are
   written to a temporary `.part` file and renamed only once complete, and
-  **never replace an existing file** — a taken name steps to ` (2)`, which the
-  viewer sees as `exists`.
+  **never replace an existing file**. A taken name steps to ` (2)`; this is not
+  a refusal and nothing is sent about it, because the transfer succeeded — the
+  viewer learns the stored name only if the operator tells them.
+- A batch is refused **before the operator is asked** when it cannot be written
+  at all: an unusable name, a size past a limit, or not enough room on the
+  volume. A question about a transfer that was never going to land spends the
+  scarcest thing in the design for nothing.
 - Nothing survives the session: a partial file is deleted and a pending prompt
   is dismissed when the channel closes.
+
+`reason` accompanies `f-reject` and `f-error`. A receiver that does not
+recognise one must still treat the transfer as over; the value only decides the
+sentence shown.
+
+| `reason` | Meaning |
+|----------|---------|
+| `denied` | The operator said no, or the picker was cancelled |
+| `busy` | Another batch is already being decided or written |
+| `too-large` | Past a size limit, or more bytes arrived than were declared |
+| `bad-name` | The name cannot be made safe to write on Windows |
+| `no-space` | Not enough room on the receiving volume |
+| `io` | The disk refused |
+| `gone` | The session ended mid-transfer |
+| `no-fsa` | The browser cannot stream a file that large to disk |
 
 There is **no approval prompt before a download**: the host's native file picker
 is the consent. The viewer cannot name a path, only ask, and what leaves the
