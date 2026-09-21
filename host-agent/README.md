@@ -5,7 +5,7 @@ The program that runs on the Windows computer being controlled. It signs in to F
 Nothing is stored on disk: every launch is a new identity and a new code, and both are deleted on exit.
 
 ## Prerequisites
-- **Go 1.24+** — <https://go.dev/dl/>
+- **Go 1.26+** — <https://go.dev/dl/> (go.mod's toolchain line names the exact release; the go command fetches it on its own)
 - **ffmpeg** with `gdigrab` and `libvpx` (5.1 or newer). Release zips ship `ffmpeg.exe` next to the agent; when running from source either put `ffmpeg.exe` next to the built binary, install it on the PATH (`winget install Gyan.FFmpeg`), or set `RC_FFMPEG_PATH`. Without ffmpeg the agent runs **without video** (the connection and the input channel still work).
 
 ## Layout

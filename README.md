@@ -90,7 +90,7 @@ freedesk/
 
 | Tool | Version |
 |------|---------|
-| Go | 1.24+ |
+| Go | 1.26+ |
 | Node.js / npm | 20+ / 10+ |
 | Firebase CLI | 13+ (emulators need a JDK 21+) |
 | ffmpeg | 5.1+ with `gdigrab` and `libvpx` (only at runtime, on the host) |
