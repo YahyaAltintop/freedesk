@@ -141,12 +141,13 @@ Lifetimes:
 ### 4.2 Rules — overview (`firebase/database.rules.json`)
 - `/hosts`: the root is not readable (no enumeration). `/hosts/{code}` is readable by any signed-in user; writable only when the record is free, owned by the writer, or abandoned (`lastSeen` older than 5 min — a dead host's code can be reused). Code format is enforced (9 digits).
 - `/inbox/{uid}`: readable only by `uid`. Entries are created by their `viewerUid`, deleted by the owner or the creator, or by anyone once older than 2 min.
-- `/sessions/{id}`: created by its `viewerUid`; read/written by the two participants; status is an enum; SDP/candidate shapes are validated; unknown fields rejected. Deleting an already-deleted node is allowed so cleanup from both sides never errors.
+- `/sessions/{id}`: created by its `viewerUid`; read/written by the two participants; status is an enum; SDP/candidate shapes **and sizes** are validated (a description is `offer`/`answer` and at most 64 KiB, a candidate line at most 512 characters); unknown fields rejected. Deleting an already-deleted node is allowed so cleanup from both sides never errors.
 - The host verifies every inbox entry against the session node (same viewer, addressed to this owner, status `waiting`) before acting on it — an inbox entry alone proves nothing.
 
 ### 4.3 Known limits (documented, not hidden)
 - **Code guessing:** the 10⁹ code space can be probed one `GET` at a time by anyone with the public API key; what is found is a host name and that a request may be sent. Approval still gates control. Firebase App Check would cut probing from the web but the Go agent cannot present App Check tokens.
 - **Prompt spam:** whoever knows a code can queue requests. The host handles one at a time and auto-declines the rest while one is pending or active, so the operator sees at most one window every 45 s.
+- **Anyone can write:** the Anonymous provider is on and the API key is public by design (it is inside the exe), so anyone on the internet can mint an identity and create sessions. The rules bound what one write may weigh, so a single session cannot hold megabytes; they cannot bound how many writes arrive, and a determined writer can still push the free tier's storage quota over time. Firebase App Check would close this for the browser but cannot be presented by the Go agent.
 - **Trust anchor:** Firebase carries the SDP (and therefore the DTLS fingerprints). Whoever can write the session node could interpose; the rules limit that to the two participants and project administrators.
 - **Orphans:** if both peers die before the viewer armed `onDisconnect`, the session node stays until the 1 h rule lets a client delete it; since nothing can list `/sessions`, such leftovers only cost storage.
 - **Local API:** `127.0.0.1:47800/identity` answers only to the FreeDesk web origins; any other website open on the host gets 403.

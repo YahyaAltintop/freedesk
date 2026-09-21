@@ -42,25 +42,25 @@
 
         "offer": {
           ".validate": "newData.hasChildren(['type', 'sdp'])",
-          "type": { ".validate": "newData.isString()" },
-          "sdp": { ".validate": "newData.isString()" },
+          "type": { ".validate": "newData.isString() && (newData.val() === 'offer' || newData.val() === 'answer')" },
+          "sdp": { ".validate": "newData.isString() && newData.val().length <= 65536" },
           "$other": { ".validate": false }
         },
 
         "answer": {
           ".validate": "newData.hasChildren(['type', 'sdp'])",
-          "type": { ".validate": "newData.isString()" },
-          "sdp": { ".validate": "newData.isString()" },
+          "type": { ".validate": "newData.isString() && (newData.val() === 'offer' || newData.val() === 'answer')" },
+          "sdp": { ".validate": "newData.isString() && newData.val().length <= 65536" },
           "$other": { ".validate": false }
         },
 
         "hostCandidates": {
           "$candidateId": {
             ".validate": "newData.hasChild('candidate')",
-            "candidate": { ".validate": "newData.isString()" },
-            "sdpMid": { ".validate": "newData.isString() || newData.val() === null" },
+            "candidate": { ".validate": "newData.isString() && newData.val().length <= 512" },
+            "sdpMid": { ".validate": "(newData.isString() && newData.val().length <= 16) || newData.val() === null" },
             "sdpMLineIndex": { ".validate": "newData.isNumber() || newData.val() === null" },
-            "usernameFragment": { ".validate": "newData.isString() || newData.val() === null" },
+            "usernameFragment": { ".validate": "(newData.isString() && newData.val().length <= 256) || newData.val() === null" },
             "$other": { ".validate": false }
           }
         },
@@ -68,10 +68,10 @@
         "viewerCandidates": {
           "$candidateId": {
             ".validate": "newData.hasChild('candidate')",
-            "candidate": { ".validate": "newData.isString()" },
-            "sdpMid": { ".validate": "newData.isString() || newData.val() === null" },
+            "candidate": { ".validate": "newData.isString() && newData.val().length <= 512" },
+            "sdpMid": { ".validate": "(newData.isString() && newData.val().length <= 16) || newData.val() === null" },
             "sdpMLineIndex": { ".validate": "newData.isNumber() || newData.val() === null" },
-            "usernameFragment": { ".validate": "newData.isString() || newData.val() === null" },
+            "usernameFragment": { ".validate": "(newData.isString() && newData.val().length <= 256) || newData.val() === null" },
             "$other": { ".validate": false }
           }
         },

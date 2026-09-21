@@ -94,7 +94,7 @@ Point the agent at it with `FIREBASE_AUTH_EMULATOR_HOST=localhost:9099` and `FIR
 
 - `/hosts` cannot be listed; a single code can be resolved by any signed-in user; only its owner can change it; anyone may delete a record whose `lastSeen` is older than 5 minutes.
 - An inbox is readable only by its owner; entries are created by the viewer that asks.
-- A session is visible only to its viewer and the host owner; identity fields are frozen; `status` is an enum; unknown fields are rejected; deleting an already deleted node is allowed.
+- A session is visible only to its viewer and the host owner; identity fields are frozen; `status` is an enum; a description's `type` is `offer`/`answer` and its `sdp` at most 64 KiB, a candidate line at most 512 characters (an unbounded string would let any anonymous identity write 16 MB per session); unknown fields are rejected; deleting an already deleted node is allowed.
 - All timestamps must be server timestamps.
 
 Full rationale: [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md), wire contract: [`docs/PROTOCOL.md`](../docs/PROTOCOL.md).

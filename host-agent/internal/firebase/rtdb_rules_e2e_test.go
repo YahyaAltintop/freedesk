@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,6 +135,21 @@ func TestRTDBRulesEmulator(t *testing.T) {
 
 	mustAllow("owner advances status", ownerDB.Put(ctx, sessionPath+"/status", "connecting"))
 	mustAllow("owner writes offer", ownerDB.Put(ctx, sessionPath+"/offer", map[string]string{"type": "offer", "sdp": "x"}))
+
+	// Anyone with the public key can mint an identity and write sessions, so
+	// what one write may weigh is what stands between a stranger and a full
+	// database: 16 MB per unvalidated string, 1 GB of quota on the Spark plan.
+	mustDeny("oversized sdp", ownerDB.Put(ctx, sessionPath+"/offer", map[string]string{"type": "offer", "sdp": strings.Repeat("a", 65537)}))
+	mustDeny("description type is an enum", ownerDB.Put(ctx, sessionPath+"/offer", map[string]string{"type": "rollback", "sdp": "x"}))
+	mustAllow("viewer writes answer", viewerDB.Put(ctx, sessionPath+"/answer", map[string]string{"type": "answer", "sdp": "y"}))
+	_, err = viewerDB.Push(ctx, sessionPath+"/viewerCandidates", map[string]any{
+		"candidate": "candidate:1 1 udp 2122260223 192.0.2.1 54321 typ host", "sdpMid": "0", "sdpMLineIndex": 0, "usernameFragment": "abcd",
+	})
+	mustAllow("viewer adds a candidate", err)
+	_, err = viewerDB.Push(ctx, sessionPath+"/viewerCandidates", map[string]any{"candidate": strings.Repeat("c", 513)})
+	mustDeny("oversized candidate", err)
+	_, err = viewerDB.Push(ctx, sessionPath+"/viewerCandidates", map[string]any{"candidate": "c", "usernameFragment": strings.Repeat("u", 257)})
+	mustDeny("oversized ufrag", err)
 	mustDeny("bogus status", viewerDB.Put(ctx, sessionPath+"/status", "bogus"))
 	mustDeny("viewerUid is frozen", viewerDB.Put(ctx, sessionPath+"/viewerUid", stranger.UID()))
 	mustDeny("required field cannot be removed", ownerDB.Delete(ctx, sessionPath+"/viewerUid"))
