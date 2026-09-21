@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/consent"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/transfer"
@@ -43,6 +44,17 @@ func repeat(a consent.Answer, n int) []consent.Answer {
 	return out
 }
 
+// fakeClock lets a test move through the backoff without waiting for it.
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) now() time.Time          { return c.t }
+func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
+
+func newFileApprover(ap Approver) (*fileApprover, *fakeClock) {
+	clock := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	return &fileApprover{approver: ap, viewerUID: "v1", now: clock.now}, clock
+}
+
 func ask(t *testing.T, fa *fileApprover) bool {
 	t.Helper()
 	return fa.AskFiles(context.Background(), []transfer.FileOffer{{Name: "a.txt", Size: 1}}, `C:\Downloads\FreeDesk`)
@@ -52,9 +64,11 @@ func ask(t *testing.T, fa *fileApprover) bool {
 // timeout for as long as the viewer keeps asking.
 func TestUnansweredPromptsEventuallyStopBeingAsked(t *testing.T) {
 	ap := &scriptedApprover{answers: repeat(consent.Unanswered, 10)}
-	fa := &fileApprover{approver: ap, viewerUID: "v1"}
+	fa, clock := newFileApprover(ap)
 
 	for i := range maxUnansweredPrompts {
+		// Well past any backoff, so only the unanswered count is in play.
+		clock.advance(refusalBackoffMax)
 		if ask(t, fa) {
 			t.Fatalf("an unanswered prompt must not approve (attempt %d)", i+1)
 		}
@@ -64,6 +78,7 @@ func TestUnansweredPromptsEventuallyStopBeingAsked(t *testing.T) {
 	}
 
 	for range 5 {
+		clock.advance(refusalBackoffMax)
 		if ask(t, fa) {
 			t.Fatal("a batch must not be approved once the session has stopped asking")
 		}
@@ -75,12 +90,14 @@ func TestUnansweredPromptsEventuallyStopBeingAsked(t *testing.T) {
 
 // The failure this guards against: counting every false, so an operator who
 // answers "no" to a few batches is treated exactly like one who is not there.
-// Saying no is being present, and being present must never cost anything.
+// Saying no is being present, and being present must never end the session's
+// questions — it may only space them out.
 func TestSayingNoNeverStopsTheQuestions(t *testing.T) {
 	ap := &scriptedApprover{answers: repeat(consent.Refused, 20)}
-	fa := &fileApprover{approver: ap, viewerUID: "v1"}
+	fa, clock := newFileApprover(ap)
 
 	for i := range 20 {
+		clock.advance(refusalBackoffMax)
 		if ask(t, fa) {
 			t.Fatalf("a refusal must not approve (attempt %d)", i+1)
 		}
@@ -101,9 +118,10 @@ func TestAnsweringResetsTheCount(t *testing.T) {
 		consent.Unanswered, consent.Unanswered,
 	}
 	ap := &scriptedApprover{answers: answers}
-	fa := &fileApprover{approver: ap, viewerUID: "v1"}
+	fa, clock := newFileApprover(ap)
 
 	for i := range answers {
+		clock.advance(refusalBackoffMax)
 		got := ask(t, fa)
 		if want := answers[i] == consent.Allowed; got != want {
 			t.Fatalf("attempt %d returned %v, expected %v", i+1, got, want)
@@ -119,9 +137,68 @@ func TestAnsweringResetsTheCount(t *testing.T) {
 func TestOnlyAllowedApproves(t *testing.T) {
 	for _, answer := range []consent.Answer{consent.Refused, consent.Unanswered, consent.Allowed} {
 		ap := &scriptedApprover{answers: []consent.Answer{answer}}
-		fa := &fileApprover{approver: ap, viewerUID: "v1"}
+		fa, _ := newFileApprover(ap)
 		if got := ask(t, fa); got != (answer == consent.Allowed) {
 			t.Fatalf("%v produced %v", answer, got)
 		}
+	}
+}
+
+// A viewer who re-offers the moment they hear "no" must not get a fresh
+// window: each refusal buys the operator a growing stretch of quiet, and a
+// yes forgets it.
+func TestRefusalsBackOff(t *testing.T) {
+	ap := &scriptedApprover{answers: repeat(consent.Refused, 6)}
+	fa, clock := newFileApprover(ap)
+
+	ask(t, fa) // no
+	if ask(t, fa); ap.timesAsked() != 1 {
+		t.Fatalf("an immediate re-offer reached the operator (asked %d)", ap.timesAsked())
+	}
+	clock.advance(refusalBackoffMin - time.Second)
+	if ask(t, fa); ap.timesAsked() != 1 {
+		t.Fatal("re-offered inside the first backoff and still reached the operator")
+	}
+	clock.advance(time.Second)
+	if ask(t, fa); ap.timesAsked() != 2 {
+		t.Fatalf("after the backoff the operator should be asked again (asked %d)", ap.timesAsked())
+	}
+
+	// The second refusal in a row doubles the gap.
+	clock.advance(refusalBackoffMin)
+	if ask(t, fa); ap.timesAsked() != 2 {
+		t.Fatal("the second refusal should have bought a longer quiet than the first")
+	}
+	clock.advance(refusalBackoffMin)
+	if ask(t, fa); ap.timesAsked() != 3 {
+		t.Fatalf("after twice the minimum the operator should be asked again (asked %d)", ap.timesAsked())
+	}
+
+	// A yes forgets the backoff: the next offer is asked at once.
+	ap.answers = []consent.Answer{consent.Allowed, consent.Refused}
+	clock.advance(refusalBackoffMax)
+	if !ask(t, fa) {
+		t.Fatal("the scripted yes should have approved")
+	}
+	if ask(t, fa); ap.timesAsked() != 5 {
+		t.Fatalf("after a yes an immediate offer must be asked (asked %d)", ap.timesAsked())
+	}
+}
+
+// The gap grows, but not without end: whatever the history, five minutes of
+// quiet is always enough for the next question to be asked.
+func TestBackoffIsCapped(t *testing.T) {
+	ap := &scriptedApprover{answers: repeat(consent.Refused, 12)}
+	fa, clock := newFileApprover(ap)
+
+	for i := range 12 {
+		clock.advance(refusalBackoffMax)
+		ask(t, fa)
+		if ap.timesAsked() != i+1 {
+			t.Fatalf("after %d refusals the cap no longer held: asked %d", i, ap.timesAsked())
+		}
+	}
+	if fa.backoff != refusalBackoffMax {
+		t.Fatalf("backoff is %v, expected to settle at the cap %v", fa.backoff, refusalBackoffMax)
 	}
 }

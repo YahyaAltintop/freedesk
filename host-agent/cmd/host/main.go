@@ -94,14 +94,8 @@ func run() error {
 		return err
 	}
 	log.Printf("[host-agent] host registered (name=%q)", cfg.HostName)
-
-	log.Println("[host-agent] ==========================================")
-	log.Printf("[host-agent]   THIS COMPUTER'S CODE: %s", formatPairingCode(code))
-	log.Printf("[host-agent]   Web page:             %s", cfg.SiteURL())
-	log.Println("[host-agent]   The person connecting opens the web page and enters this code;")
-	log.Println("[host-agent]   every request is approved on this computer.")
-	log.Println("[host-agent]   The code changes every time the agent starts.")
-	log.Println("[host-agent] ==========================================")
+	current := &pairing{code: code}
+	printBanner(code, cfg.SiteURL())
 
 	// --- Local identity endpoint (web UI shows the code from here) ------------
 	api, err := localapi.Start(cfg.LocalAPIPort, localapi.Identity{
@@ -117,7 +111,7 @@ func run() error {
 	}
 
 	// --- Heartbeat -------------------------------------------------------------
-	go runHeartbeat(ctx, registrar, code, cfg.HeartbeatInterval)
+	go runHeartbeat(ctx, registrar, current, cfg.HeartbeatInterval)
 
 	// --- Incoming requests -----------------------------------------------------
 	approver := consent.New(cfg.ApprovalMode, approvalTimeout)
@@ -134,6 +128,13 @@ func run() error {
 
 	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath, appVersion, picker, cfg.ClipboardMode)
 	inbox := session.NewInbox(rtdb, manager.UID())
+
+	// A code that keeps producing windows nobody approves has reached the
+	// wrong people. Replace it: the operator reads the new one off the
+	// console, and whoever was probing the old one has to start over.
+	coordinator.OnRepeatedRefusals(func(streak int) {
+		rotateCode(ctx, registrar, current, api, cfg, streak)
+	})
 
 	var sessions sessionTracker
 	log.Println("[host-agent] waiting for connection requests…")
@@ -156,7 +157,7 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := registrar.Unregister(shutdownCtx, code); err != nil {
+	if err := registrar.Unregister(shutdownCtx, current.get()); err != nil {
 		log.Printf("[host-agent] could not remove host record: %v", err)
 	}
 	if err := manager.DeleteAccount(shutdownCtx); err != nil {
@@ -195,7 +196,63 @@ func registrationDeniedError(attempts int, projectID string, err error) error {
 		attempts, err, projectID)
 }
 
-func runHeartbeat(ctx context.Context, registrar *host.Registrar, code string, interval time.Duration) {
+// pairing is the code this machine is currently published under. It changes
+// when the coordinator reports a run of refused connection requests, so every
+// reader — the heartbeat, the loopback endpoint, shutdown — takes the current
+// value rather than the one from start-up.
+type pairing struct {
+	mu   sync.Mutex
+	code string
+}
+
+func (p *pairing) get() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.code
+}
+
+func (p *pairing) set(code string) {
+	p.mu.Lock()
+	p.code = code
+	p.mu.Unlock()
+}
+
+// printBanner shows the operator the one thing they need to pass on.
+func printBanner(code, site string) {
+	log.Println("[host-agent] ==========================================")
+	log.Printf("[host-agent]   THIS COMPUTER'S CODE: %s", formatPairingCode(code))
+	log.Printf("[host-agent]   Web page:             %s", site)
+	log.Println("[host-agent]   The person connecting opens the web page and enters this code;")
+	log.Println("[host-agent]   every request is approved on this computer.")
+	log.Println("[host-agent]   The code changes every time the agent starts.")
+	log.Println("[host-agent] ==========================================")
+}
+
+// rotateCode publishes this machine under a fresh code and retires the old
+// one. The new record is written first, so the machine is never without a
+// code; if that fails the old code stays and the operator is told why.
+func rotateCode(ctx context.Context, registrar *host.Registrar, current *pairing, api *localapi.Server, cfg *config.Config, streak int) {
+	old := current.get()
+	fresh, err := registerWithFreshCode(ctx, registrar, cfg.HostName, cfg.ProjectID)
+	if err != nil {
+		log.Printf("[host-agent] %d connection requests in a row were not approved, but a new code could not be published (%v); the code %s stays in use",
+			streak, err, formatPairingCode(old))
+		return
+	}
+	current.set(fresh)
+	if api != nil {
+		api.Update(localapi.Identity{Code: fresh, Name: cfg.HostName, Version: appVersion})
+	}
+	if err := registrar.Unregister(ctx, old); err != nil {
+		log.Printf("[host-agent] could not retire the old code %s: %v (it expires on its own after 5 minutes)", formatPairingCode(old), err)
+	}
+	log.Printf("[host-agent] %d connection requests in a row were not approved: whoever has the old code %s can no longer use it.",
+		streak, formatPairingCode(old))
+	log.Println("[host-agent]   If you were expecting someone, give them the NEW code below.")
+	printBanner(fresh, cfg.SiteURL())
+}
+
+func runHeartbeat(ctx context.Context, registrar *host.Registrar, current *pairing, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -203,7 +260,7 @@ func runHeartbeat(ctx context.Context, registrar *host.Registrar, code string, i
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := registrar.Heartbeat(ctx, code); err != nil {
+			if err := registrar.Heartbeat(ctx, current.get()); err != nil {
 				if ctx.Err() != nil {
 					return
 				}

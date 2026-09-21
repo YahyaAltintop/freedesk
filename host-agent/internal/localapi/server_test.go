@@ -65,3 +65,20 @@ func TestIdentityServedOnlyToAllowedOrigin(t *testing.T) {
 		}
 	}
 }
+
+// The code the endpoint hands out has to follow the code the agent is
+// actually published under, or the home page would show one that no longer
+// reaches this machine.
+func TestUpdatedIdentityIsServed(t *testing.T) {
+	srv, url := startTestServer(t)
+	srv.Update(Identity{Code: "987654321", Name: "pc", Version: "t"})
+
+	resp := get(t, url, "https://app.example")
+	var id Identity
+	if err := json.NewDecoder(resp.Body).Decode(&id); err != nil {
+		t.Fatal(err)
+	}
+	if id.Code != "987654321" {
+		t.Fatalf("served %q after Update, expected the new code", id.Code)
+	}
+}

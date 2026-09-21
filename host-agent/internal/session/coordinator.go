@@ -53,6 +53,16 @@ type Approver interface {
 // them.
 const maxUnansweredPrompts = 3
 
+// A refusal buys the operator some quiet. A viewer who re-offers the moment
+// they hear "no" would otherwise put a fresh window up as fast as the operator
+// can close one — and the window is topmost and takes the foreground. The gap
+// doubles with each refusal in a row and is forgotten on a yes, so an honest
+// second try costs ten seconds and a campaign costs minutes.
+const (
+	refusalBackoffMin = 10 * time.Second
+	refusalBackoffMax = 5 * time.Minute
+)
+
 // fileApprover asks the operator about incoming files, turning what the
 // transfer package knows into the question the consent package poses.
 //
@@ -63,18 +73,32 @@ const maxUnansweredPrompts = 3
 type fileApprover struct {
 	approver  Approver
 	viewerUID string
+	// now is replaced in tests.
+	now func() time.Time
 
 	mu         sync.Mutex
 	unanswered int
+	// quietUntil is when the next file prompt may be shown; backoff is the
+	// gap the last refusal set. A yes clears both.
+	quietUntil time.Time
+	backoff    time.Duration
+}
+
+func (a *fileApprover) clock() time.Time {
+	if a.now != nil {
+		return a.now()
+	}
+	return time.Now()
 }
 
 func (a *fileApprover) AskFiles(ctx context.Context, files []transfer.FileOffer, folder string) bool {
 	a.mu.Lock()
-	quiet := a.unanswered >= maxUnansweredPrompts
+	quiet := a.unanswered >= maxUnansweredPrompts || a.clock().Before(a.quietUntil)
 	a.mu.Unlock()
 	if quiet {
 		// Refused as if the operator said no. Telling the viewer "nobody is
-		// there" would answer a question they should not get to ask.
+		// there" or "not yet" would answer questions they should not get to
+		// ask.
 		return false
 	}
 
@@ -96,10 +120,29 @@ func (a *fileApprover) AskFiles(ctx context.Context, files []transfer.FileOffer,
 		// questions over an hour is not the one this is defending against.
 		a.unanswered = 0
 	}
+	if answer.OK() {
+		a.backoff = 0
+		a.quietUntil = time.Time{}
+	} else {
+		a.backoff = min(max(2*a.backoff, refusalBackoffMin), refusalBackoffMax)
+		a.quietUntil = a.clock().Add(a.backoff)
+	}
 	a.mu.Unlock()
 
 	return answer.OK()
 }
+
+// maxUnapprovedConnects is how many connection prompts in a row may end
+// without a yes before the coordinator reports it.
+//
+// Whoever knows the code can put a window on this screen every 45 seconds for
+// as long as they like: the prompt is topmost and takes the foreground, and
+// each one is a chance for a click meant for something else to land on it.
+// One prompt at a time bounds the rate, not the duration. Three in a row
+// without a yes is either a stranger or a friend the operator is ignoring,
+// and the right move is the same for both: a fresh code, which the operator
+// can pass on and the stranger cannot guess again.
+const maxUnapprovedConnects = 3
 
 // Coordinator runs the host side of connection sessions: it validates each
 // request, obtains operator approval, negotiates the WebRTC connection over
@@ -119,9 +162,38 @@ type Coordinator struct {
 	// version is announced to the viewer in the greeting, so it can explain
 	// what an old agent is missing instead of just disabling a button.
 	version string
+	// onRefusals is told when maxUnapprovedConnects connection prompts in a
+	// row ended without a yes. Nil means only the log line.
+	onRefusals func(streak int)
 
-	mu     sync.Mutex
-	active bool
+	mu         sync.Mutex
+	active     bool
+	unapproved int // connection prompts in a row that ended without a yes
+}
+
+// OnRepeatedRefusals registers what to do when maxUnapprovedConnects
+// connection prompts in a row ended without approval. It is called on its own
+// goroutine with the length of the streak, once per streak.
+func (c *Coordinator) OnRepeatedRefusals(fn func(streak int)) { c.onRefusals = fn }
+
+// noteConnectOutcome records how a connection prompt ended and reports whether
+// the run of refusals has reached the limit. Everything that is not a yes
+// counts — no, silence, and a request withdrawn while the window was up —
+// because each of them put a window on the operator's screen. A yes starts
+// the count again, and so does reaching the limit.
+func (c *Coordinator) noteConnectOutcome(approved bool) (limitReached bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if approved {
+		c.unapproved = 0
+		return false
+	}
+	c.unapproved++
+	if c.unapproved < maxUnapprovedConnects {
+		return false
+	}
+	c.unapproved = 0
+	return true
 }
 
 // NewCoordinator builds a coordinator for the authenticated owner, with the
@@ -223,6 +295,12 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 	}()
 	approved := approver.Ask(promptCtx, consent.ConnectRequest(req.ViewerUID, c.clipboardMode == clipboard.ModeText)).OK()
 	cancelPrompt()
+	if c.noteConnectOutcome(approved) {
+		log.Printf("[session] %d connection requests in a row were not approved", maxUnapprovedConnects)
+		if c.onRefusals != nil {
+			go c.onRefusals(maxUnapprovedConnects)
+		}
+	}
 
 	select {
 	case <-withdrawn:

@@ -15,6 +15,10 @@ This folder lets someone else see and control THIS computer from a browser.
 4. Close the console window (or press Ctrl+C in it) to stop sharing. The code
    stops working immediately.
 
+If three connection requests in a row are not approved, the program assumes
+the code has reached the wrong people: it stops using it and prints a new
+one. Anyone you were expecting needs the new code.
+
 If the window shows an error instead of a code, it also says what to fix;
 the window stays open until you press Enter.
 

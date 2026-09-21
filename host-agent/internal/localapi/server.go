@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +25,10 @@ type Identity struct {
 // Server is a running loopback identity server.
 type Server struct {
 	srv *http.Server
+	// id is what the endpoint serves right now. It is replaced, not mutated:
+	// the pairing code changes when the agent retires one that has been
+	// handed to the wrong people, and the home page must show the new one.
+	id atomic.Pointer[Identity]
 }
 
 // Start listens on 127.0.0.1:port and serves GET /identity to the given web
@@ -38,6 +43,9 @@ func Start(port int, id Identity, allowedOrigins []string) (*Server, error) {
 	for _, o := range allowedOrigins {
 		allowed[o] = true
 	}
+
+	s := &Server{}
+	s.id.Store(&id)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +70,7 @@ func Start(port int, id Identity, allowedOrigins []string) (*Server, error) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(id)
+		_ = json.NewEncoder(w).Encode(s.id.Load())
 	})
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -70,10 +78,13 @@ func Start(port int, id Identity, allowedOrigins []string) (*Server, error) {
 		return nil, err
 	}
 
-	s := &Server{srv: &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}}
+	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = s.srv.Serve(listener) }()
 	return s, nil
 }
+
+// Update replaces what the endpoint serves from now on.
+func (s *Server) Update(id Identity) { s.id.Store(&id) }
 
 // Close shuts the server down gracefully.
 func (s *Server) Close() {
