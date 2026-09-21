@@ -19,6 +19,12 @@ const pickerCooldown = 5 * time.Second
 // information the picker does not ("do you want to open a file picker?") while
 // adding a click, and that is exactly the prompt fatigue that erodes the
 // meaning of the one prompt that matters.
+//
+// That reasoning has one precondition: the operator, and only the operator,
+// operates the dialog. It is drawn on the screen the viewer is watching, and
+// injected input drives it like any window, so the session pauses remote
+// input for as long as Busy reports it open. Without that, "choose something
+// for me" would mean "let me choose".
 type FilePicker interface {
 	// Pick returns absolute paths the operator chose. ok is false when they
 	// cancelled, when another picker is already open, or when this build has no

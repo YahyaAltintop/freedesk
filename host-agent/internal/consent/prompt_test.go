@@ -16,7 +16,8 @@ const testTimeout = 45 * time.Second
 func TestConnectPromptText(t *testing.T) {
 	got := ConnectRequest("0QiE1KFGS1S7RXm7ASKnXApwz1a5", false).Text(testTimeout)
 	want := "Someone entered this computer's code and wants to connect.\n\n" +
-		"Allow them to see your screen and control this computer?\n\n" +
+		"Allow them to see your screen, control this computer,\n" +
+		"and exchange files with it?\n\n" +
 		"This request is rejected automatically in 45 seconds.\n" +
 		"(viewer 0QiE1KFG…)"
 	if got != want {
@@ -30,7 +31,7 @@ func TestConnectPromptMentionsTheClipboard(t *testing.T) {
 	got := ConnectRequest("0QiE1KFGS1S7RXm7ASKnXApwz1a5", true).Text(testTimeout)
 	want := "Someone entered this computer's code and wants to connect.\n\n" +
 		"Allow them to see your screen, control this computer,\n" +
-		"and share copied text with it?\n\n" +
+		"exchange files with it, and share copied text?\n\n" +
 		"This request is rejected automatically in 45 seconds.\n" +
 		"(viewer 0QiE1KFG…)"
 	if got != want {

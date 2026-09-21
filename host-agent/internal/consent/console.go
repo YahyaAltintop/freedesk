@@ -39,9 +39,15 @@ func (c *Console) readLoop() {
 // Only an explicit yes ("y", "yes") approves; everything else —
 // including silence — rejects.
 func (c *Console) Ask(ctx context.Context, p Prompt) Answer {
-	uiMu.Lock()
-	defer uiMu.Unlock()
+	answer := Refused
+	exclusive(func() { answer = c.ask(ctx, p) })
+	return answer
+}
 
+// ask runs the prompt. It runs inside exclusive for the same reason the dialog
+// does: if the console happens to be the foreground window, injected
+// keystrokes type into it, and "y" followed by Enter is an approval.
+func (c *Console) ask(ctx context.Context, p Prompt) Answer {
 	// Drop any line typed after a previous prompt already timed out, so a
 	// stale answer cannot approve the wrong request.
 	draining := true

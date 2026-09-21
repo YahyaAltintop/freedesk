@@ -51,9 +51,14 @@ func NewDialog(timeout time.Duration) *Dialog {
 // Ask blocks until the operator clicks Yes or No, the timeout passes, or ctx
 // ends (the viewer withdrew the request). Only an explicit Yes approves.
 func (d *Dialog) Ask(ctx context.Context, p Prompt) Answer {
-	uiMu.Lock()
-	defer uiMu.Unlock()
+	answer := Refused
+	exclusive(func() { answer = d.ask(ctx, p) })
+	return answer
+}
 
+// ask shows the box. It runs inside exclusive, which is what makes the session
+// hold remote input back for as long as the box is up.
+func (d *Dialog) ask(ctx context.Context, p Prompt) Answer {
 	d.mu.Lock()
 	d.seq++
 	seq := d.seq

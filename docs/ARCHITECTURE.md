@@ -132,7 +132,7 @@ Lifetimes:
 
 ### 4.1 Principles
 1. **Identity mandatory:** if `auth == null`, no access at all (identity is anonymous but required).
-2. **Code = address, approval = authorization:** whoever knows the code can resolve the host and *request* a connection; establishing the connection depends on the operator's Yes on the host machine.
+2. **Code = address, approval = authorization:** whoever knows the code can resolve the host and *request* a connection; establishing the connection depends on the operator's Yes on the host machine. That Yes is the boundary: it grants everything a person at the keyboard could do. The prompts a session shows afterwards (incoming files, the file picker) guard the *FreeDesk* path for those actions and are answerable only by the operator — remote input is paused while one is on screen — but they are not a second boundary, because a viewer with control of the machine has other paths to the same files.
 3. **Ownership isolation:** a host record is writable only by the identity that registered it; an inbox is readable only by its owner; a session only by its two participants.
 4. **Immutable identity fields:** `viewerUid`, `ownerUid`, `createdAt` of a session cannot be changed after creation; `ownerUid` of a host must equal the writer.
 5. **Server clocks only:** every timestamp is a server value and validated against `now`; client clocks are never trusted.
@@ -194,6 +194,7 @@ The Go Host Agent does not use the Firebase **Admin SDK**. Instead, an **anonymo
 | 19 | Fixed destination, never overwrite, `.part` until complete, Mark of the Web | The destination cannot be talked upwards; a half-written installer cannot be run; Windows warns at the moment someone runs what arrived |
 | 20 | Downloads have no Yes/No — the native picker **is** the consent | The viewer can only ask "choose me something"; a prompt in front of the picker carries no information the picker does not, and only adds a click |
 | 21 | Clipboard as a sync, not an interception of Ctrl+C/Ctrl+V | The keystrokes keep being forwarded, so an agent that does not understand the feature still pastes normally instead of losing Ctrl+V entirely |
+| 22 | Remote input is **paused** while any prompt or picker is on screen | The window is drawn on the screen the viewer watches and injected clicks reach it like local ones; without the pause the viewer could approve its own request — a test clicks the Yes button through the input path to prove it cannot |
 
 ### 5.1 ICE / NAT traversal strategy
 This project uses **public STUN only**:

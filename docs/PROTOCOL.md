@@ -269,6 +269,16 @@ is the consent. The viewer cannot name a path, only ask, and what leaves the
 machine is what the operator selected in a dialog they could have cancelled.
 Cancelling it is a `f-reject` with `denied`.
 
+That holds — for the picker and for the incoming-files prompt alike — only if
+the viewer cannot operate the dialog. Both are drawn on the screen the viewer is
+watching, and injected input reaches a dialog exactly as a local click does.
+**A host must not apply remote input while a question is in front of its
+operator.** FreeDesk's agent drops every input-channel frame for as long as a
+prompt or picker is open and releases whatever the viewer was holding; the
+frames are dropped, not queued, because a click replayed after the window has
+gone would land on whatever is underneath. Without this rule a prompt approves
+nothing but itself, which a test demonstrates rather than assumes.
+
 Resuming is not supported. `offset` exists in the schema and is always `0`, so
 adding it later does not change the contract.
 

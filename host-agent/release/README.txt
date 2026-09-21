@@ -20,12 +20,15 @@ the window stays open until you press Enter.
 
 If the other person sends you files, a second window asks first. Files you
 accept are saved to your Downloads\FreeDesk folder. Nothing is written
-without your click, and an existing file is never replaced. If you step away
+without your click, and an existing file is never replaced. While that window
+is open the other person's mouse and keyboard are paused, so the click can
+only be yours. If you step away
 and three of those windows go unanswered, the program stops asking for the
 rest of that connection, so you never come back to a pile of them.
 
 If they ask you for files, a file picker opens on this computer. Only what
-you choose there is sent, and cancelling sends nothing.
+you choose there is sent, and cancelling sends nothing. Their mouse and
+keyboard are paused while it is open, for the same reason.
 
 While you are connected, text you copy is shared with the other person and
 theirs with you, so Ctrl+C and Ctrl+V work across both computers. The window

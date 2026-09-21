@@ -84,14 +84,17 @@ func (p Prompt) Text(timeout time.Duration) string {
 	var b strings.Builder
 	if p.Kind == KindConnect {
 		b.WriteString("Someone entered this computer's code and wants to connect.\n\n")
+		// Files are named because a person weighing this deserves the list of
+		// what a session can do, not a summary of it. The clipboard is named
+		// because it is the one part that reads something of the operator's
+		// while they use their own machine, rather than only doing what they
+		// can watch happen on screen.
 		if p.Clipboard {
-			// Said out loud because it is the one part of a session that reads
-			// something of the operator's while they use their own machine,
-			// rather than only doing what they can watch happen on screen.
 			b.WriteString("Allow them to see your screen, control this computer,\n" +
-				"and share copied text with it?\n\n")
+				"exchange files with it, and share copied text?\n\n")
 		} else {
-			b.WriteString("Allow them to see your screen and control this computer?\n\n")
+			b.WriteString("Allow them to see your screen, control this computer,\n" +
+				"and exchange files with it?\n\n")
 		}
 	} else {
 		fmt.Fprintf(&b, "The person connected to this computer wants to send %s.\n\n",

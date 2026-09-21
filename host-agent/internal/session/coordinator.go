@@ -319,7 +319,7 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 					// not something this channel carries, and feeding it to a
 					// JSON parser would only fail silently.
 					if msg.IsString {
-						inputHandler.Handle(msg.Data)
+						applyInput(inputHandler, msg.Data)
 					}
 				})
 				dc.OnClose(func() {

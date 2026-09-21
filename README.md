@@ -16,7 +16,7 @@ A small, free remote desktop: see and control another Windows PC from your brows
 1. Press **Download for Windows** on the web page (or take `freedesk-host-windows-x64.zip` from this repository's **Releases** page) and unzip it anywhere.
 2. Run `freedesk-host.exe`. A console window shows **THIS COMPUTER'S CODE** (for example `738 986 982`). If Windows asks about network access, allow it.
 3. Give the code to the person who should connect.
-4. When they connect, a window pops up: **Allow them to see your screen and control this computer?** Click **Yes**. If you do not answer within 45 seconds the request is rejected.
+4. When they connect, a window pops up: **Allow them to see your screen, control this computer, exchange files with it, and share copied text?** Click **Yes**. If you do not answer within 45 seconds the request is rejected.
 5. Close the console window (or press Ctrl+C) to stop. The code stops working immediately; the next start gets a new code.
 
 ### On the computer that connects
