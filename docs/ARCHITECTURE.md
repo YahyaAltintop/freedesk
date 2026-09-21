@@ -219,6 +219,6 @@ ffmpeg (`gdigrab` → `libvpx` VP8 → IVF over a pipe) keeps the agent free of 
 | Vue Router | 5+ |
 | Bootstrap | 5.3+ |
 | Firebase Web SDK | 12+ (modular) |
-| Go | 1.24+ |
+| Go | 1.26+ (the toolchain line in go.mod pins the exact patch release the agent is built with) |
 | Pion WebRTC | v4 |
 | ffmpeg | 5.1+ (gdigrab, libvpx) |
