@@ -231,6 +231,11 @@ func printBanner(code, site string) {
 // rotateCode publishes this machine under a fresh code and retires the old
 // one. The new record is written first, so the machine is never without a
 // code; if that fails the old code stays and the operator is told why.
+//
+// A viewer already connected under the old code is not disturbed: a live
+// session lives on its own /sessions node, independent of the host record, so
+// removing that record ends no session. It only stops the old code being
+// resolved again. The heartbeat follows the new code from here on.
 func rotateCode(ctx context.Context, registrar *host.Registrar, current *pairing, api *localapi.Server, cfg *config.Config, streak int) {
 	old := current.get()
 	fresh, err := registerWithFreshCode(ctx, registrar, cfg.HostName, cfg.ProjectID)

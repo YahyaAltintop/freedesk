@@ -138,10 +138,20 @@ func (a *fileApprover) AskFiles(ctx context.Context, files []transfer.FileOffer,
 // Whoever knows the code can put a window on this screen every 45 seconds for
 // as long as they like: the prompt is topmost and takes the foreground, and
 // each one is a chance for a click meant for something else to land on it.
-// One prompt at a time bounds the rate, not the duration. Three in a row
-// without a yes is either a stranger or a friend the operator is ignoring,
-// and the right move is the same for both: a fresh code, which the operator
-// can pass on and the stranger cannot guess again.
+// One prompt at a time bounds the rate, not the duration. Three unapproved in
+// a row means the code is producing windows nobody wants, and the right move is
+// the same however it happened: a fresh code the operator can pass on and a
+// stranger cannot guess again.
+//
+// The count is across requests, not per viewer, and that is deliberate. A
+// per-viewer count would be free to evade: anyone can mint a new anonymous
+// identity for each request (that is the whole reason the connection prompt,
+// not the identity, is the boundary), so a prober would simply never repeat a
+// uid. Counting every unapproved request instead means a real campaign trips
+// it. The cost is that three unrelated people who each fail to get in — or one
+// friend who times out while a probe is also running — also rotate the code;
+// that is acceptable, because a code reaching people who do not get approved is
+// exactly the code worth replacing.
 const maxUnapprovedConnects = 3
 
 // Coordinator runs the host side of connection sessions: it validates each

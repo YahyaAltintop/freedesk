@@ -28,7 +28,12 @@ func TestAnApprovalEndsTheStreak(t *testing.T) {
 	if c.noteConnectOutcome(true) {
 		t.Fatal("a yes can never be the refusal that reaches the limit")
 	}
-	if c.noteConnectOutcome(false) || c.noteConnectOutcome(false) {
+	// Two more refusals after the yes. Both calls must run (kept out of a
+	// short-circuiting ||) so the count actually reaches two, and neither may
+	// report the limit yet.
+	first := c.noteConnectOutcome(false)
+	second := c.noteConnectOutcome(false)
+	if first || second {
 		t.Fatal("the refusals before the yes were still being counted")
 	}
 	if !c.noteConnectOutcome(false) {

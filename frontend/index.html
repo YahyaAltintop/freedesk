@@ -12,7 +12,12 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>FreeDesk — free remote desktop in your browser</title>
     <!-- Apply the theme before the first paint: a remembered choice, else the
-         browser's preference. Kept in sync afterwards by src/composables/useTheme.ts. -->
+         browser's preference. Kept in sync afterwards by src/composables/useTheme.ts.
+         The production Content-Security-Policy allows this inline script by the
+         sha256 of its contents (firebase/firebase.json, script-src). Editing the
+         script below changes that hash: recompute it, or the deployed page runs
+         nothing here and loads unstyled. The dev server and the Hosting emulator
+         do not enforce the header, so the break shows up only in production. -->
     <script>
       ;(function () {
         var theme = null
