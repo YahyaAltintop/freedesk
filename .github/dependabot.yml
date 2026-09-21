@@ -1,0 +1,18 @@
+# Keeps the pinned action SHAs, Go modules and npm packages current. Without
+# this, pinning actions by commit is a way to freeze a vulnerability in place
+# rather than a way to keep one out.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /host-agent
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

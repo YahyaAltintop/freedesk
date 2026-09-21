@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only: CI only builds and tests. Actions are pinned by commit SHA; a
+# floating tag would let a compromised action run with whatever this token has.
+permissions:
+  contents: read
+
 jobs:
   host-agent:
     name: Host agent (Go, Windows)
@@ -20,8 +25,8 @@ jobs:
       # yet: use the workspace root explicitly.
       - run: git config --global core.autocrlf false
         working-directory: ${{ github.workspace }}
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: host-agent/go.mod
           cache-dependency-path: host-agent/go.sum
@@ -41,8 +46,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -63,15 +68,15 @@ jobs:
     name: Database rules (emulator)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: host-agent/go.mod
           cache-dependency-path: host-agent/go.sum
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "21"

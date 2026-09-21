@@ -21,12 +21,19 @@ on:
       - ".github/workflows/deploy-web.yml"
   workflow_dispatch:
 
+# The deploy needs no write access to the repository: the site is published
+# with the service account, and on a push event the hosting action does not
+# touch the repo token. Actions are pinned by commit SHA because this job
+# holds a key that can rewrite the live site.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -47,7 +54,7 @@ jobs:
           npm run build
 
       - name: Deploy hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a # v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
