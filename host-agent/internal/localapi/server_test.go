@@ -18,7 +18,7 @@ func startTestServer(t *testing.T) (*Server, string) {
 	port := l.Addr().(*net.TCPAddr).Port
 	l.Close()
 
-	srv, err := Start(port, Identity{Code: "123456789", Name: "pc", Version: "t"}, []string{"https://app.example"})
+	srv, err := Start(port, Identity{Code: "123456", Name: "pc", Version: "t"}, []string{"https://app.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestIdentityServedOnlyToAllowedOrigin(t *testing.T) {
 		t.Fatalf("expected the origin to be echoed, got %q", got)
 	}
 	var id Identity
-	if err := json.NewDecoder(resp.Body).Decode(&id); err != nil || id.Code != "123456789" {
+	if err := json.NewDecoder(resp.Body).Decode(&id); err != nil || id.Code != "123456" {
 		t.Fatalf("unexpected body: %+v err=%v", id, err)
 	}
 

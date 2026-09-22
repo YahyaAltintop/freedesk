@@ -35,11 +35,11 @@ func TestInboxDispatchesSnapshotAndNewEntriesOnce(t *testing.T) {
 	fresh := now.Add(-10 * time.Second).UnixMilli()
 
 	// Initial sync: a map of entries at "/".
-	in.handleData(ctx, event("put", "/", `{"s1":{"viewerUid":"v1","code":"123456789","createdAt":`+itoa(fresh)+`}}`), handle)
+	in.handleData(ctx, event("put", "/", `{"s1":{"viewerUid":"v1","code":"123456","createdAt":`+itoa(fresh)+`}}`), handle)
 	// A new request at "/{id}".
-	in.handleData(ctx, event("put", "/s2", `{"viewerUid":"v2","code":"123456789","createdAt":`+itoa(fresh)+`}`), handle)
+	in.handleData(ctx, event("put", "/s2", `{"viewerUid":"v2","code":"123456","createdAt":`+itoa(fresh)+`}`), handle)
 	// Reconnect replays both; neither may be dispatched again.
-	in.handleData(ctx, event("put", "/", `{"s1":{"viewerUid":"v1","code":"123456789","createdAt":`+itoa(fresh)+`},"s2":{"viewerUid":"v2","code":"123456789","createdAt":`+itoa(fresh)+`}}`), handle)
+	in.handleData(ctx, event("put", "/", `{"s1":{"viewerUid":"v1","code":"123456","createdAt":`+itoa(fresh)+`},"s2":{"viewerUid":"v2","code":"123456","createdAt":`+itoa(fresh)+`}}`), handle)
 	// Removal notifications are ignored.
 	in.handleData(ctx, event("put", "/s1", `null`), handle)
 
@@ -60,8 +60,8 @@ func TestInboxDropsStaleAndMalformedEntries(t *testing.T) {
 	ctx := context.Background()
 
 	old := now.Add(-staleRequestAge - time.Minute).UnixMilli()
-	in.handleData(ctx, event("put", "/old", `{"viewerUid":"v1","code":"123456789","createdAt":`+itoa(old)+`}`), handle)
-	in.handleData(ctx, event("put", "/bad", `{"code":"123456789","createdAt":`+itoa(now.UnixMilli())+`}`), handle)
+	in.handleData(ctx, event("put", "/old", `{"viewerUid":"v1","code":"123456","createdAt":`+itoa(old)+`}`), handle)
+	in.handleData(ctx, event("put", "/bad", `{"code":"123456","createdAt":`+itoa(now.UnixMilli())+`}`), handle)
 	in.handleData(ctx, event("put", "/deep/field", `"x"`), handle)
 
 	if len(got) != 0 {

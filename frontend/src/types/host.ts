@@ -1,5 +1,5 @@
 // Domain model for a host machine (mirrors the RTDB `/hosts/{code}` node).
-// `hostId` IS the 9-digit pairing code, i.e. the node key. Nothing about a
+// `hostId` IS the 6-digit pairing code, i.e. the node key. Nothing about a
 // host persists between launches: the agent mints a fresh anonymous uid and a
 // fresh code every time it starts, so a record simply disappears (or goes
 // stale) once the agent is gone.

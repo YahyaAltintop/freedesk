@@ -8,3 +8,5 @@ package clipboard
 func newPlatformBoard() (Board, error) { return unavailable{}, ErrUnavailable }
 
 func pumpMessages() {}
+
+func WriteTextAs(uintptr, string) error { return ErrUnavailable }

@@ -14,6 +14,7 @@ import { CAP_CLIP_TEXT, CAP_FILE_RECV, CAP_FILE_SEND } from '@/types/protocol'
 import { useServerNow } from '@/composables/useServerNow'
 import { isHostOnline } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
+import { formatPairingCode } from '@/utils/pairingCode'
 import { RouteName } from '@/constants/routes'
 import type { Host } from '@/types/host'
 import type { InputMessage } from '@/types/input'
@@ -216,8 +217,7 @@ const statusLabel = computed(() => {
 // that follows (rejected / closed) is merely a consequence of it.
 const displayedError = computed(() => (hostGone.value ? null : error.value))
 
-// "123456789" -> "123 456 789" for display.
-const formattedCode = computed(() => props.hostId.replace(/(\d{3})(?=\d)/g, '$1 ').trim())
+const formattedCode = computed(() => formatPairingCode(props.hostId))
 
 let unsubscribeHost: (() => void) | null = null
 

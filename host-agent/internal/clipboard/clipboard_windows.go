@@ -283,6 +283,14 @@ func (b *winBoard) WriteText(s string) error {
 	return nil
 }
 
+// WriteTextAs puts text on the clipboard on behalf of hwnd, a window that
+// lives on the CALLING thread, which must be locked. For code that already
+// owns a window and a thread — the status window — and does not want a second
+// one just to copy a line.
+func WriteTextAs(hwnd uintptr, s string) error {
+	return (&winBoard{hwnd: hwnd}).WriteText(s)
+}
+
 // pumpMessages drains the window's queue.
 //
 // Needed even though nothing is drawn: when another process calls

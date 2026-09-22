@@ -52,7 +52,7 @@ func TestRTDBRulesEmulator(t *testing.T) {
 	owner, viewer, stranger := newAnon("owner"), newAnon("viewer"), newAnon("stranger")
 	ownerDB, viewerDB, strangerDB := db(owner), db(viewer), db(stranger)
 
-	code := fmt.Sprintf("%09d", time.Now().UnixNano()%1_000_000_000)
+	code := fmt.Sprintf("%06d", time.Now().UnixNano()%1_000_000)
 	hostPath := "hosts/" + code
 
 	mustDeny := func(label string, err error) {

@@ -11,7 +11,9 @@ require (
 )
 
 require (
+	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/pion/datachannel v1.6.2 // indirect
 	github.com/pion/dtls/v3 v3.1.8 // indirect
 	github.com/pion/ice/v4 v4.4.2 // indirect
@@ -26,8 +28,16 @@ require (
 	github.com/pion/stun/v4 v4.0.0 // indirect
 	github.com/pion/transport/v4 v4.1.0 // indirect
 	github.com/pion/turn/v5 v5.1.0 // indirect
+	github.com/russross/blackfriday/v2 v2.1.0 // indirect
+	github.com/tc-hib/go-winres v0.3.3 // indirect
+	github.com/tc-hib/winres v0.2.1 // indirect
+	github.com/urfave/cli/v2 v2.25.7 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/image v0.12.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 )
+
+tool github.com/tc-hib/go-winres

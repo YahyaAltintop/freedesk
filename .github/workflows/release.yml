@@ -2,26 +2,21 @@ name: Release
 
 # Tag a commit `vX.Y.Z` and push the tag: this builds the Windows host agent
 # with the Firebase project embedded, bundles ffmpeg, and publishes
-# freedesk-host-windows-x64.zip on the GitHub release together with its
-# SHA-256 and a build provenance attestation (verify with
-# gh attestation verify freedesk-host-windows-x64.zip --repo <owner>/<repo>).
+# freedesk-windows-x64.zip on the GitHub release together with its SHA-256
+# and a build provenance attestation. What the zip contains, which repository
+# variables and secrets the build reads and how to verify a download:
+# docs/RELEASING.md.
 #
 # Everything this workflow runs or downloads is pinned to an immutable
 # identity: actions by commit SHA, ffmpeg by a dated build and its SHA-256,
-# because the exe it produces runs on every host machine with the operator's
-# rights. A floating tag is a way for someone else's compromise to become ours.
+# go-winres by go.sum, because the exe it produces runs on every host machine
+# with the operator's rights. A floating tag is a way for someone else's
+# compromise to become ours.
 #
-# Required repository VARIABLES (Settings → Secrets and variables → Actions → Variables):
-#   FIREBASE_PROJECT_ID, FIREBASE_DATABASE_URL (the viewer's public values) and
-#   FIREBASE_AGENT_API_KEY: an API key of the same project WITHOUT application
-#   restrictions. The agent is a desktop program and sends no website referrer,
-#   so a key limited to websites rejects it (API_KEY_HTTP_REFERRER_BLOCKED) and
-#   the exe exits at start-up; its API restrictions, if any, must allow
-#   "Identity Toolkit API" and "Token Service API". Falls back to the viewer's
-#   FIREBASE_API_KEY when unset (fine when that key is unrestricted).
 # The "Check the API key" step refuses to build with a key that rejects a
-# request without a referrer, so a broken exe is never published.
-# None of these values is a secret: the security rules protect the data.
+# request without a referrer, so a broken exe is never published. The exe is
+# signed only when the CODESIGN_* secrets exist; until then the step is
+# skipped and Windows shows "Unknown publisher" on first run.
 
 on:
   push:
@@ -41,6 +36,8 @@ env:
   # release page (or gh release view), and change both lines together.
   FFMPEG_ZIP_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-19-13-11/ffmpeg-n9.0.2-win64-lgpl-9.0.zip
   FFMPEG_ZIP_SHA256: f0a85cd3977d987992a90d0e2a1e563d2aeb97078823a42216cdce154d8119cb
+  # The asset name; frontend/src/constants/links.ts looks for exactly this.
+  ZIP_NAME: freedesk-windows-x64.zip
 
 jobs:
   windows:
@@ -50,6 +47,9 @@ jobs:
       AGENT_API_KEY: ${{ vars.FIREBASE_AGENT_API_KEY || vars.FIREBASE_API_KEY }}
       FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
       FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
+      # "true" once a code-signing certificate is configured. The secrets
+      # themselves are handed to the signing step only.
+      HAS_CODESIGN: ${{ secrets.CODESIGN_PFX_BASE64 != '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -113,22 +113,60 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
+          $numeric = ($version -split "-")[0] # a file version is digits only; the tag may say -rc1
           $module = (go list -m)
           $cfg = "$module/internal/config"
           # A Hosting site named differently from the project (firebase.json
           # "hosting.site") must be allowed to read the code from the agent.
           $site = (Get-Content ../firebase/firebase.json -Raw | ConvertFrom-Json).hosting.site
           if (-not $site) { $site = "" }
-          $ldflags = "-s -w " +
+          "hosting site: '$site'"
+          # Icon, version information and application manifest, from
+          # cmd/host/winres, stamped with the tag (go-winres is a tool
+          # dependency pinned in go.sum).
+          go tool go-winres make --in cmd/host/winres/winres.json --out cmd/host/rsrc --arch amd64 --file-version $numeric --product-version $version
+          if ($LASTEXITCODE -ne 0) { throw "go-winres failed" }
+          # -H=windowsgui: a windowed program, no console window.
+          $ldflags = "-s -w -H=windowsgui " +
             "-X main.appVersion=$version " +
             "-X $cfg.BuildAPIKey=$env:AGENT_API_KEY " +
             "-X $cfg.BuildProjectID=$env:FIREBASE_PROJECT_ID " +
             "-X $cfg.BuildDatabaseURL=$env:FIREBASE_DATABASE_URL " +
-            "-X $cfg.BuildHostingSite=$site"
-          "hosting site: '$site'"
+            "-X $cfg.BuildHostingSite=$site " +
+            "-X $cfg.BuildRepo=${{ github.repository }}"
           New-Item -ItemType Directory -Force ../dist | Out-Null
-          go build -trimpath -ldflags $ldflags -o ../dist/freedesk-host.exe ./cmd/host
-          Get-Item ../dist/freedesk-host.exe | Format-Table Name, Length
+          go build -trimpath -ldflags $ldflags -o ../dist/freedesk.exe ./cmd/host
+          if ($LASTEXITCODE -ne 0) { throw "go build failed" }
+          # The version resource is the proof that the resources were linked
+          # in: Windows shows none of them when it is missing or malformed.
+          $info = (Get-Item ../dist/freedesk.exe).VersionInfo
+          $info | Format-List FileDescription, ProductName, FileVersion, ProductVersion
+          if ($info.FileDescription -ne "FreeDesk") { throw "freedesk.exe carries no version resource: the go-winres step did not take" }
+          if ($info.ProductVersion -ne $version) { throw "freedesk.exe reports version '$($info.ProductVersion)', expected '$version'" }
+          Get-Item ../dist/freedesk.exe | Format-Table Name, Length
+
+      # Authenticode signature, only once a certificate is configured
+      # (docs/RELEASING.md). Until then the exe ships unsigned.
+      - name: Sign the executable
+        if: env.HAS_CODESIGN == 'true'
+        shell: pwsh
+        env:
+          CODESIGN_PFX_BASE64: ${{ secrets.CODESIGN_PFX_BASE64 }}
+          CODESIGN_PFX_PASSWORD: ${{ secrets.CODESIGN_PFX_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe not found on this runner" }
+          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CODESIGN_PFX_BASE64))
+          try {
+            & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /d "FreeDesk" /f $pfx /p $env:CODESIGN_PFX_PASSWORD dist/freedesk.exe
+            if ($LASTEXITCODE -ne 0) { throw "signtool sign failed" }
+            & $signtool.FullName verify /pa /v dist/freedesk.exe
+            if ($LASTEXITCODE -ne 0) { throw "signtool verify failed" }
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Fetch ffmpeg
         shell: pwsh
@@ -144,27 +182,42 @@ jobs:
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-src
           $exe = Get-ChildItem ffmpeg-src -Recurse -Filter ffmpeg.exe | Select-Object -First 1
           if (-not $exe) { throw "ffmpeg.exe not found in the downloaded archive" }
-          Copy-Item $exe.FullName dist/ffmpeg.exe
+          # Its own folder in the zip, so the person unpacking sees one program
+          # to run; the agent looks for ffmpeg\ffmpeg.exe next to itself.
+          New-Item -ItemType Directory -Force dist/ffmpeg | Out-Null
+          Copy-Item $exe.FullName dist/ffmpeg/ffmpeg.exe
           $license = Get-ChildItem ffmpeg-src -Recurse -Filter LICENSE.txt | Select-Object -First 1
-          if ($license) { Copy-Item $license.FullName dist/ffmpeg-LICENSE.txt }
+          if ($license) { Copy-Item $license.FullName dist/ffmpeg/LICENSE.txt }
           # The agent needs the GDI screen grabber and the VP8 encoder.
-          $devices = & dist/ffmpeg.exe -hide_banner -devices 2>&1 | Out-String
-          $encoders = & dist/ffmpeg.exe -hide_banner -encoders 2>&1 | Out-String
+          $devices = & dist/ffmpeg/ffmpeg.exe -hide_banner -devices 2>&1 | Out-String
+          $encoders = & dist/ffmpeg/ffmpeg.exe -hide_banner -encoders 2>&1 | Out-String
           if ($devices -notmatch "gdigrab") { throw "this ffmpeg build has no gdigrab" }
           if ($encoders -notmatch "libvpx") { throw "this ffmpeg build has no libvpx (VP8)" }
-          & dist/ffmpeg.exe -version | Select-Object -First 1
+          & dist/ffmpeg/ffmpeg.exe -version | Select-Object -First 1
 
       - name: Assemble zip
         shell: pwsh
         run: |
           Copy-Item LICENSE dist/LICENSE.txt
           Copy-Item host-agent/release/README.txt dist/README.txt
-          Compress-Archive -Path dist/* -DestinationPath freedesk-host-windows-x64.zip
-          Get-ChildItem dist | Format-Table Name, Length
+          Compress-Archive -Path dist/* -DestinationPath $env:ZIP_NAME
+          # Exactly the layout README.txt describes, nothing more or less.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $env:ZIP_NAME).Path)
+          try {
+            $entries = @($zip.Entries | ForEach-Object { $_.FullName -replace "\\", "/" } | Sort-Object)
+          } finally {
+            $zip.Dispose()
+          }
+          $expected = @("LICENSE.txt", "README.txt", "ffmpeg/LICENSE.txt", "ffmpeg/ffmpeg.exe", "freedesk.exe") | Sort-Object
+          "zip contents:"; $entries
+          if (($entries -join "`n") -ne ($expected -join "`n")) {
+            throw "unexpected zip layout; expected exactly: $($expected -join ', ')"
+          }
           # A checksum file next to the zip, in the sha256sum -c layout, so a
           # download can be checked without any GitHub tooling.
-          $hash = (Get-FileHash -Algorithm SHA256 freedesk-host-windows-x64.zip).Hash.ToLowerInvariant()
-          Set-Content -Path freedesk-host-windows-x64.zip.sha256 -Value "$hash  freedesk-host-windows-x64.zip" -NoNewline -Encoding ascii
+          $hash = (Get-FileHash -Algorithm SHA256 $env:ZIP_NAME).Hash.ToLowerInvariant()
+          Set-Content -Path "$env:ZIP_NAME.sha256" -Value "$hash  $env:ZIP_NAME" -NoNewline -Encoding ascii
           "zip SHA-256: $hash"
 
       # Signed statement that THIS workflow, at THIS commit, produced the zip.
@@ -172,12 +225,12 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
-          subject-path: freedesk-host-windows-x64.zip
+          subject-path: ${{ env.ZIP_NAME }}
 
       - name: Publish release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
-            freedesk-host-windows-x64.zip
-            freedesk-host-windows-x64.zip.sha256
+            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_NAME }}.sha256
           generate_release_notes: true

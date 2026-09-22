@@ -4,7 +4,6 @@ package consent
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"runtime"
 	"sync"
@@ -66,9 +65,9 @@ func (d *Dialog) ask(ctx context.Context, p Prompt) Answer {
 	// A unique title lets us find and dismiss exactly this box on withdrawal.
 	title := p.Title(seq)
 	text := p.Text(d.timeout)
-	// Echo the question to the console too: the operator may be looking there,
-	// and it leaves a record of what was asked.
-	fmt.Printf("%s>>> Answer in the dialog window.\n", p.ConsoleHeader())
+	// Echo the question to the log too: it shows in the status window's
+	// activity pane, and it leaves a record of what was asked.
+	log.Printf("%s>>> Answer in the dialog window.", p.ConsoleHeader())
 
 	result := make(chan uintptr, 1)
 	go func() {
@@ -92,7 +91,7 @@ func (d *Dialog) ask(ctx context.Context, p Prompt) Answer {
 		case idYes:
 			return Allowed
 		case mbTimedOut:
-			fmt.Println(">>> no answer; request rejected")
+			log.Println(">>> no answer; request rejected")
 			return Unanswered
 		}
 		return Refused

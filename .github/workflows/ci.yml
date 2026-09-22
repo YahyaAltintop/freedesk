@@ -35,6 +35,9 @@ jobs:
         run: |
           files=$(gofmt -l .)
           if [ -n "$files" ]; then echo "gofmt needed:"; echo "$files"; exit 1; fi
+      # The exe's icon, version information and manifest (cmd/host/winres):
+      # a broken resource definition should fail here, not on the release.
+      - run: go generate ./cmd/host
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...

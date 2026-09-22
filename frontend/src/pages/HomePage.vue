@@ -7,11 +7,18 @@ import type { IconName } from '@/components/icons'
 import { useAuthStore } from '@/stores/auth.store'
 import { fetchHostByCode, removeStaleHost } from '@/services/host.service'
 import { fetchLocalIdentity, type LocalIdentity } from '@/services/localAgent'
+import { useLatestRelease } from '@/services/releases'
 import { serverNow } from '@/services/serverTime'
 import { isHostOnline, isHostStaleForGc } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
+import { isNewerVersion } from '@/utils/version'
 import { RouteName } from '@/constants/routes'
 import { GITHUB_URL } from '@/constants/links'
+import {
+  PAIRING_CODE_LENGTH,
+  formatPairingCode,
+  normalizePairingCode,
+} from '@/utils/pairingCode'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -26,8 +33,21 @@ const identityChecked = ref(false)
 const copied = ref(false)
 const isWindows = /Windows/i.test(navigator.userAgent)
 
+// The host program running here reports its version; the download button's
+// release lookup knows the newest one. When they differ, say so right where
+// the code is shown — the person who can update is sitting at this computer.
+const latestRelease = useLatestRelease()
+const hostUpdate = computed(() => {
+  const lookup = latestRelease.value
+  const current = identity.value?.version
+  if (lookup?.state !== 'found' || !current) {
+    return null
+  }
+  return isNewerVersion(lookup.release.version, current) ? lookup.release : null
+})
+
 // The agent is probed again every few seconds (loopback, cheap) so the code
-// shows up by itself once the user starts freedesk-host.exe and disappears
+// shows up by itself once the user starts freedesk.exe and disappears
 // when they close it. Paused while the tab is hidden.
 const REPROBE_IDLE_MS = 4_000
 const REPROBE_RUNNING_MS = 10_000
@@ -96,24 +116,19 @@ const code = ref('')
 const busy = ref(false)
 const connectError = ref<string | null>(null)
 
-// "123456789" -> "123 456 789" (partial input groups as far as it goes).
-function formatCode(value: string): string {
-  return value.replace(/(\d{3})(?=\d)/g, '$1 ').trim()
-}
-
-const formattedInput = computed(() => formatCode(code.value))
+const formattedInput = computed(() => formatPairingCode(code.value))
 
 function onCodeInput(event: Event): void {
   const input = event.target as HTMLInputElement
-  code.value = input.value.replace(/\D/g, '').slice(0, 9)
+  code.value = normalizePairingCode(input.value)
   // Reflect the normalised value so stray characters never linger in the box.
-  input.value = formatCode(code.value)
+  input.value = formatPairingCode(code.value)
 }
 
 async function handleConnect(): Promise<void> {
   connectError.value = null
-  if (code.value.length !== 9) {
-    connectError.value = 'The code must be 9 digits.'
+  if (code.value.length !== PAIRING_CODE_LENGTH) {
+    connectError.value = `The code must be ${PAIRING_CODE_LENGTH} digits.`
     return
   }
   if (identity.value && code.value === identity.value.code) {
@@ -194,7 +209,7 @@ const features: Feature[] = [
             <span class="fd-gradient-text">as simple as a code.</span>
           </h1>
           <p class="fd-lead fd-rise" style="--d: 2">
-            Control a Windows PC from your browser. Share a 9-digit code, click Yes, done.
+            Control a Windows PC from your browser. Share a 6-digit code, click Yes, done.
           </p>
           <div class="d-flex flex-wrap align-items-start gap-3 mb-4 fd-rise" style="--d: 3">
             <DownloadButton />
@@ -227,7 +242,7 @@ const features: Feature[] = [
                 id="remote-code"
                 class="form-control fd-code-input"
                 :value="formattedInput"
-                placeholder="000 000 000"
+                placeholder="000 - 000"
                 inputmode="numeric"
                 autocomplete="off"
                 spellcheck="false"
@@ -237,7 +252,7 @@ const features: Feature[] = [
               <button
                 class="btn btn-fd-primary btn-lg w-100 mt-3 d-inline-flex align-items-center justify-content-center gap-2"
                 type="submit"
-                :disabled="busy || code.length !== 9"
+                :disabled="busy || code.length !== PAIRING_CODE_LENGTH"
               >
                 <span v-if="busy" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
                 <template v-else>Connect <AppIcon name="arrow-right" :size="18" /></template>
@@ -282,7 +297,7 @@ const features: Feature[] = [
               <span class="fd-term-dot"></span>
               <span class="fd-term-dot"></span>
               <span class="fd-term-dot"></span>
-              <span class="ms-2">freedesk-host.exe</span>
+              <span class="ms-2">freedesk.exe</span>
             </div>
             <div class="fd-term-body">
               <div v-if="!identityChecked">
@@ -294,7 +309,7 @@ const features: Feature[] = [
                   <span class="fd-term-k">[host-agent]</span> host registered (name="{{ identity.name }}")
                 </div>
                 <div><span class="fd-term-k">[host-agent]</span> THIS COMPUTER'S CODE:</div>
-                <div class="fd-term-code">{{ formatCode(identity.code) }}</div>
+                <div class="fd-term-code">{{ formatPairingCode(identity.code) }}</div>
                 <div><span class="fd-term-k">[host-agent]</span> web page: {{ siteOrigin }}</div>
                 <div>
                   <span class="fd-term-k">[host-agent]</span> waiting for connection requests
@@ -302,7 +317,7 @@ const features: Feature[] = [
                 </div>
               </template>
               <template v-else>
-                <div><span class="fd-term-k">$</span> freedesk-host.exe</div>
+                <div><span class="fd-term-k">$</span> freedesk.exe</div>
                 <div class="fd-term-dim">waiting for the program to start <span class="fd-cursor"></span></div>
               </template>
             </div>
@@ -313,6 +328,16 @@ const features: Feature[] = [
               Share this code. You click <strong>Yes</strong> on every connection. New code on
               every start.
             </p>
+            <div v-if="hostUpdate" class="fd-update mb-3">
+              <AppIcon name="download" :size="16" />
+              <span>
+                <strong>Update available.</strong> This computer runs {{ identity.version }};
+                {{ hostUpdate.version }} is out.
+              </span>
+              <a class="btn btn-fd-primary btn-sm" :href="hostUpdate.downloadUrl">
+                Get {{ hostUpdate.version }}
+              </a>
+            </div>
             <div class="mt-auto">
               <button
                 class="btn btn-fd-ghost d-inline-flex align-items-center gap-2"
@@ -332,7 +357,7 @@ const features: Feature[] = [
               </li>
               <li>
                 <span>
-                  <strong>Run <code>freedesk-host.exe</code>.</strong> No install. Allow network
+                  <strong>Run <code>freedesk.exe</code>.</strong> No install. Allow network
                   access if asked.
                 </span>
               </li>
@@ -355,6 +380,12 @@ const features: Feature[] = [
               <template v-else>The host runs on Windows 10/11. Connecting works from anywhere.</template>
               Only connecting out? You don't need it.
             </p>
+            <p class="fd-hint mt-2 mb-0">
+              <AppIcon name="github" :size="14" /> Open source, MIT licensed.
+              <a :href="GITHUB_URL" target="_blank" rel="noopener">Read the code on GitHub</a>.
+              Windows may warn about an unknown publisher: the build isn't signed yet. Choose
+              <strong>More info → Run anyway</strong>, or check the SHA-256 on the release page.
+            </p>
           </template>
         </div>
       </div>
@@ -373,7 +404,7 @@ const features: Feature[] = [
               <span class="fd-how-num">01</span>
               <div>
                 <strong>Run the host program</strong>
-                <p>On the PC to share. It shows a 9-digit code.</p>
+                <p>On the PC to share. It shows a 6-digit code.</p>
               </div>
             </div>
             <div class="fd-how-step">
@@ -412,8 +443,8 @@ const features: Feature[] = [
       </div>
     </div>
     <p class="fd-hint mt-4 mb-0">
-      Windows 10/11 hosts · primary monitor · no audio or files · some networks (CGNAT) can't
-      connect directly.
+      Windows 10/11 hosts · primary monitor · no audio · some networks (CGNAT) can't connect
+      directly.
       <a :href="GITHUB_URL" target="_blank" rel="noopener">Details on GitHub.</a>
     </p>
   </section>

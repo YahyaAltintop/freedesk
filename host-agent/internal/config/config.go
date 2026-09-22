@@ -6,11 +6,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/clipboard"
-	"time"
 )
 
 // Build-time defaults, injected by the release build with
@@ -28,7 +29,20 @@ var (
 	// the project id (firebase.json "hosting.site"); it adds the site's
 	// web.app / firebaseapp.com origins to the loopback allow-list.
 	BuildHostingSite string
+	// BuildRepo is the GitHub repository ("owner/name") whose releases the
+	// agent compares itself with. The release build sets it to the repository
+	// that built the exe, so a fork's build looks at the fork's releases.
+	BuildRepo string
 )
+
+// defaultRepo is where FreeDesk itself is published.
+const defaultRepo = "YahyaAltintop/freedesk"
+
+// repoPattern is the shape of a GitHub "owner/name": an owner is letters,
+// digits and inner hyphens; a name may also hold dots and underscores but
+// cannot be only dots. The value ends up in a URL path the operator can
+// click, so it is checked rather than trusted.
+var repoPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/\.?[A-Za-z0-9_-][A-Za-z0-9_.-]*$`)
 
 // Config holds all runtime configuration for the host agent.
 type Config struct {
@@ -46,6 +60,12 @@ type Config struct {
 	// never advertised and nothing ever reads the clipboard.
 	ClipboardMode string
 	HostingSite   string // Firebase Hosting site id if it differs from the project id
+
+	// UpdateCheck is whether the agent asks GitHub once, in the background at
+	// start-up, whether a newer release exists (RC_UPDATE_CHECK=off turns it
+	// off). It only tells the operator; it never downloads anything.
+	UpdateCheck bool
+	GitHubRepo  string // "owner/name" whose releases are checked; see BuildRepo
 
 	// WebOrigins are the browser origins allowed to read the pairing code from
 	// the loopback endpoint: the deployed web app plus the local dev server.
@@ -88,6 +108,7 @@ func Load(envFilePath string) (*Config, error) {
 		ApprovalMode:      strings.ToLower(strings.TrimSpace(os.Getenv("RC_APPROVAL"))),
 		ClipboardMode:     strings.ToLower(strings.TrimSpace(os.Getenv("RC_CLIPBOARD"))),
 		HostingSite:       firstNonEmpty(os.Getenv("RC_HOSTING_SITE"), BuildHostingSite),
+		GitHubRepo:        firstNonEmpty(strings.TrimSpace(os.Getenv("RC_GITHUB_REPO")), BuildRepo, defaultRepo),
 		LocalAPIPort:      defaultLocalAPIPort,
 		HeartbeatInterval: defaultHeartbeatInterval,
 		AuthBaseURL:       defaultAuthBaseURL,
@@ -101,6 +122,17 @@ func Load(envFilePath string) (*Config, error) {
 	}
 	if cfg.ApprovalMode != "" && cfg.ApprovalMode != "dialog" && cfg.ApprovalMode != "console" {
 		return nil, fmt.Errorf("RC_APPROVAL invalid: %q (must be dialog or console)", cfg.ApprovalMode)
+	}
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("RC_UPDATE_CHECK"))); raw {
+	case "", "on":
+		cfg.UpdateCheck = true
+	case "off":
+		cfg.UpdateCheck = false
+	default:
+		return nil, fmt.Errorf("RC_UPDATE_CHECK invalid: %q (must be on or off)", raw)
+	}
+	if !repoPattern.MatchString(cfg.GitHubRepo) {
+		return nil, fmt.Errorf("RC_GITHUB_REPO invalid: %q (must be owner/name)", cfg.GitHubRepo)
 	}
 
 	if raw := os.Getenv("RC_LOCAL_PORT"); raw != "" {

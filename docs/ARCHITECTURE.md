@@ -12,7 +12,7 @@ The system consists of three independent components. Each focuses on a single re
 The viewer application that runs in the browser (deployed on Firebase Hosting). There is no login screen.
 - On startup, an invisible **anonymous** Firebase session (Auth Web SDK, `signInAnonymously`).
 - Displaying this machine's pairing code on the home page (read from the loopback endpoint of the host agent on the same machine).
-- Resolving the remote computer's 9-digit code (an individual `/hosts/{code}` read) and creating a session + request.
+- Resolving the remote computer's 6-digit code (an individual `/hosts/{code}` read) and creating a session + request.
 - Displaying the **video track** received over WebRTC in a `<video>` element.
 - Capturing mouse/keyboard events and forwarding them to the host over the **`input` DataChannel**, but only while the video element actually holds the focus — an unfocused page must not type on somebody else's machine.
 - Sending files dropped on the remote screen and saving files the host offers, over the **`file` DataChannel**: written straight to disk through the File System Access API rather than held in memory.
@@ -20,12 +20,13 @@ The viewer application that runs in the browser (deployed on Firebase Hosting). 
 - Cleaning up after itself: everything it writes is armed with `onDisconnect().remove()`.
 
 ### 1.2 Go Host Agent (Host)
-The agent that runs on the remotely controlled Windows machine (`freedesk-host.exe` + `ffmpeg.exe`).
-- Authenticates **anonymously** to Firebase (Identity Toolkit REST). **Every launch is a new identity and a new 9-digit code; nothing is stored on disk.** On shutdown it removes its host record and deletes its own anonymous account.
+The agent that runs on the remotely controlled Windows machine (`freedesk.exe` + `ffmpeg\ffmpeg.exe`).
+- Authenticates **anonymously** to Firebase (Identity Toolkit REST). **Every launch is a new identity and a new 6-digit code; nothing is stored on disk.** On shutdown it removes its host record and deletes its own anonymous account.
 - Publishes itself as `/hosts/{code}` and refreshes `lastSeen` every 30 s (server timestamp).
-- Prints the code to the console and serves it to the local web UI on `127.0.0.1` (`/identity`, allowed web origins only).
+- Shows the code in a small window and serves it to the local web UI on `127.0.0.1` (`/identity`, allowed web origins only).
 - Streams its inbox (`/inbox/{uid}`) over Server-Sent Events; **no polling, zero reads while idle.**
 - Every request is approved in a native **Yes/No window** (or `y` on the console); no answer within 45 s = rejected.
+- Asks `api.github.com` once at start-up, in the background, whether a newer release exists, and shows an **Update to …** button if so (`RC_UPDATE_CHECK=off` disables it). The web page does the same comparison for the agent running on the viewer's own computer, next to its code. It only points at the release page; it never downloads or replaces anything, and a failed or rate-limited answer is silent.
 - On approval, establishes the WebRTC connection (as the offerer), captures the screen with ffmpeg and streams it as a **video track**.
 - Applies input events arriving over the **`input` DataChannel** via the Windows API; releases every held key/button when the viewer goes away.
 - Announces what it can do in a `hello` greeting the moment that channel opens, so the viewer enables features from the advertised capabilities rather than from a version number.
@@ -46,7 +47,7 @@ The agent that runs on the remotely controlled Windows machine (`freedesk-host.e
 ```
 App opens ──(invisible anonymous session)──▶ Home page
    ├── "This computer": code is read from the local agent's 127.0.0.1 endpoint
-   └── "Connect": 9-digit code ──▶ /hosts/{code} individual GET ──▶ create session + inbox entry
+   └── "Connect": 6-digit code ──▶ /hosts/{code} individual GET ──▶ create session + inbox entry
 ```
 The only way to reach a host is to know its code; there is no host list/discovery
 (the `/hosts` root cannot be read). Nor is knowing the code enough on its own —
@@ -145,7 +146,7 @@ Lifetimes:
 - The host verifies every inbox entry against the session node (same viewer, addressed to this owner, status `waiting`) before acting on it — an inbox entry alone proves nothing.
 
 ### 4.3 Known limits (documented, not hidden)
-- **Code guessing:** the 10⁹ code space can be probed one `GET` at a time by anyone with the public API key; what is found is a host name and that a request may be sent. Approval still gates control. Firebase App Check would cut probing from the web but the Go agent cannot present App Check tokens.
+- **Code guessing:** the 10⁶ code space (six digits: a code lives only while the agent runs and is replaced on every start, so it is an address, not a secret) can be probed one `GET` at a time by anyone with the public API key; what is found is a host name and that a request may be sent. Approval still gates control, and three unapproved requests in a row retire the code (next item). Firebase App Check would cut probing from the web but the Go agent cannot present App Check tokens.
 - **Prompt spam:** whoever knows a code can queue requests. The host handles one at a time and auto-declines the rest while one is pending or active, so the operator sees at most one window every 45 s — and after **three connection prompts in a row end without a yes** the agent retires the code and publishes a fresh one, so a stranger who found it has to start over and a friend gets the new one from the operator. The count is across requests rather than per viewer, on purpose: a per-viewer count would be free to evade, since anyone can mint a new anonymous identity per request. The cost is that three unrelated failed attempts — or a friend timing out while a probe also runs — rotate the code too, which is acceptable because a code reaching people who are not approved is the code worth replacing. Inside a session, each refused file prompt buys a doubling stretch of quiet (10 s up to 5 min, forgotten on a yes), so "no" cannot be answered with an immediate re-offer.
 - **Anyone can write:** the Anonymous provider is on and the API key is public by design (it is inside the exe), so anyone on the internet can mint an identity and create sessions. The rules bound what one write may weigh, so a single session cannot hold megabytes; they cannot bound how many writes arrive, and a determined writer can still push the free tier's storage quota over time. Firebase App Check would close this for the browser but cannot be presented by the Go agent.
 - **Trust anchor:** Firebase carries the SDP (and therefore the DTLS fingerprints). Whoever can write the session node could interpose; the rules limit that to the two participants and project administrators.
@@ -195,7 +196,7 @@ The Go Host Agent does not use the Firebase **Admin SDK**. Instead, an **anonymo
 | 19 | Fixed destination, never overwrite, `.part` until complete, Mark of the Web | The destination cannot be talked upwards; a half-written installer cannot be run; Windows warns at the moment someone runs what arrived |
 | 20 | Downloads have no Yes/No — the native picker **is** the consent | The viewer can only ask "choose me something"; a prompt in front of the picker carries no information the picker does not, and only adds a click |
 | 21 | Clipboard as a sync, not an interception of Ctrl+C/Ctrl+V | The keystrokes keep being forwarded, so an agent that does not understand the feature still pastes normally instead of losing Ctrl+V entirely |
-| 23 | Three unapproved connection prompts in a row **rotate the code** | The code is ephemeral anyway; replacing it is the one response that costs a stranger their address without costing the operator anything but reading the console |
+| 23 | Three unapproved connection prompts in a row **rotate the code** | The code is ephemeral anyway; replacing it is the one response that costs a stranger their address without costing the operator anything but reading the window |
 | 22 | Remote input is **paused** while any prompt or picker is on screen | The window is drawn on the screen the viewer watches and injected clicks reach it like local ones; without the pause the viewer could approve its own request — a test clicks the Yes button through the input path to prove it cannot |
 
 ### 5.1 ICE / NAT traversal strategy
@@ -206,7 +207,7 @@ This project uses **public STUN only**:
 - **Upgrade path:** the ICE server list is kept in a **single configuration point** (frontend `constants/webrtc.ts` and host `internal/webrtc/config.go`). Adding a `turn:` entry (+ credentials) is enough; the code does not change.
 
 ### 5.2 Desktop capture & video encoding
-ffmpeg (`gdigrab` → `libvpx` VP8 → IVF over a pipe) keeps the agent free of CGO and native codecs; only `ffmpeg.exe` is needed at runtime and it ships in the release zip. `-fps_mode passthrough` preserves real capture timestamps (ffmpeg ≥ 5.1). Faster capture (`ddagrab`) and hardware H.264 are possible later without touching the WebRTC side.
+ffmpeg (`gdigrab` → `libvpx` VP8 → IVF over a pipe) keeps the agent free of CGO and native codecs; only `ffmpeg.exe` is needed at runtime and it ships in the release zip's `ffmpeg\` folder. `-fps_mode passthrough` preserves real capture timestamps (ffmpeg ≥ 5.1). Faster capture (`ddagrab`) and hardware H.264 are possible later without touching the WebRTC side.
 
 ---
 

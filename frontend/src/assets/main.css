@@ -515,6 +515,29 @@ code {
   animation: fd-pulse 1.8s ease-out infinite;
 }
 
+/* ---- Host update notice (the agent on this computer is behind) ----------- */
+.fd-update {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--fd-radius-sm);
+  border: 1px solid var(--fd-badge-pink-border);
+  background: var(--fd-badge-pink-bg);
+  color: var(--fd-ink);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.fd-update .fd-icon {
+  color: var(--fd-badge-pink-color);
+  flex: none;
+}
+.fd-update .btn {
+  flex: none;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 /* ---- Code entry ---------------------------------------------------------- */
 
 .form-control.fd-code-input {
