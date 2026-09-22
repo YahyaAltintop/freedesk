@@ -37,6 +37,7 @@ Release builds have the Firebase values embedded (`-ldflags -X`, see `.github/wo
 | `RC_FIREBASE_API_KEY`, `RC_FIREBASE_PROJECT_ID`, `RC_FIREBASE_DB_URL` | The Firebase project (same as the viewer). The key must have **no application restrictions**: the agent sends no website referrer, so a website-restricted key rejects it (see [firebase/README.md → API keys](../firebase/README.md#api-keys)) |
 | `RC_HOST_NAME` | Display name (default: machine name, max 64 chars) |
 | `RC_FFMPEG_PATH` | ffmpeg executable (default: `ffmpeg\ffmpeg.exe` or `ffmpeg.exe` next to the agent, else PATH) |
+| `RC_MAX_WIDTH` | Widest frame the encoder is given, in pixels (default 1920). gdigrab hands over the whole desktop, every monitor of it; anything wider is scaled down to this, aspect kept, so the 2 Mbit/s video budget still covers what it encodes |
 | `RC_APPROVAL` | `dialog` (default on Windows) or `console` (`y` + Enter, and no status window; used by tests and headless runs) |
 | `RC_LOCAL_PORT` | Loopback port for the code endpoint (default 47800; must match the viewer) |
 | `RC_UPDATE_CHECK` | `on` (default) or `off`: at start-up the agent asks `api.github.com` once, in the background, whether a newer release exists and shows a purple **Update to …** button if so. It never downloads anything; any failure (offline, GitHub's rate limit) is silent |

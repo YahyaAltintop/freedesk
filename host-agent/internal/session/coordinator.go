@@ -154,21 +154,42 @@ func (a *fileApprover) AskFiles(ctx context.Context, files []transfer.FileOffer,
 // exactly the code worth replacing.
 const maxUnapprovedConnects = 3
 
+// clipboardSync is what a session needs from clipboard.Sync, as an interface
+// so a test can stand in for the Win32 worker.
+type clipboardSync interface {
+	OnFiles(func(paths []string))
+	PutFiles(paths []string)
+	Handle(data []byte)
+	Stop()
+}
+
+// Test seams: how a session's peer is built and negotiated. Tests replace
+// them to fail a connection without a network.
+var (
+	preparePeer   = webrtc.Prepare
+	negotiatePeer = func(ctx context.Context, p *webrtc.Peer, t signaling.Transport) (*pion.PeerConnection, error) {
+		return p.Negotiate(ctx, t)
+	}
+)
+
 // Coordinator runs the host side of connection sessions: it validates each
 // request, obtains operator approval, negotiates the WebRTC connection over
 // the session node and reflects the lifecycle in that node
 // (connecting → connected → ended, then removal). Only one session runs at a
 // time; further requests are declined while one is pending or active.
 type Coordinator struct {
-	rtdb       *firebase.RTDB
-	ownerUID   string
-	cfg        webrtc.Config
-	ffmpegPath string
+	rtdb     *firebase.RTDB
+	ownerUID string
+	cfg      webrtc.Config
+	capture  capture.Options
 	// picker lets the operator choose files to send. Nil-safe: a build or a
 	// mode without one simply never advertises downloads.
 	picker consent.FilePicker
 	// clipboardMode is RC_CLIPBOARD: "text" or "off".
 	clipboardMode string
+	// newClipboard makes the session's clipboard sync; a test replaces it to
+	// watch the worker being stopped.
+	newClipboard func(send func(string)) (clipboardSync, error)
 	// version is announced to the viewer in the greeting, so it can explain
 	// what an old agent is missing instead of just disabling a button.
 	version string
@@ -207,13 +228,19 @@ func (c *Coordinator) noteConnectOutcome(approved bool) (limitReached bool) {
 }
 
 // NewCoordinator builds a coordinator for the authenticated owner, with the
-// ICE config and the ffmpeg executable to use for screen capture (empty =
-// "ffmpeg" from PATH).
-func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, ffmpegPath, version string, picker consent.FilePicker, clipboardMode string) *Coordinator {
+// ICE config and the screen-capture options to use.
+func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, cap capture.Options, version string, picker consent.FilePicker, clipboardMode string) *Coordinator {
 	return &Coordinator{
 		rtdb: rtdb, ownerUID: ownerUID, cfg: cfg,
-		ffmpegPath: ffmpegPath, version: version, picker: picker,
+		capture: cap, version: version, picker: picker,
 		clipboardMode: clipboardMode,
+		newClipboard: func(send func(string)) (clipboardSync, error) {
+			sync, err := clipboard.NewSync(clipboard.ModeText, send)
+			if err != nil {
+				return nil, err
+			}
+			return sync, nil
+		},
 	}
 }
 
@@ -282,6 +309,18 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 
 	_ = c.setStatus(sessionCtx, req.ID, statusConnecting)
 
+	// Build the session's peer now, while the operator is still deciding: ICE
+	// gathering — the STUN round trips — then overlaps with the prompt instead
+	// of following the click. Nothing is published before a yes, and whatever
+	// the answer, the session is released exactly once on the way out.
+	s, err := c.prepare(sessionCtx, req, approver)
+	if err != nil {
+		log.Printf("[session] %s: could not prepare the connection: %v", req.ID, err)
+		c.finish(req)
+		return
+	}
+	defer s.release()
+
 	// Ask the operator, but stop asking the moment the viewer gives up (the
 	// node vanishes through onDisconnect, or the viewer marks it ended).
 	promptCtx, cancelPrompt := context.WithCancel(sessionCtx)
@@ -325,60 +364,68 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 		return
 	}
 
-	c.connect(sessionCtx, req, transport, approver)
+	c.run(sessionCtx, req, transport, s)
 	c.finish(req)
 }
 
-// connect negotiates the WebRTC connection and supervises it until it ends.
-func (c *Coordinator) connect(ctx context.Context, req Request, transport *signaling.RTDBTransport, approver Approver) {
-	log.Printf("[session] %s: establishing connection…", req.ID)
+// live is what a session holds from the moment its request is verified until
+// its connection ends. It is built before the operator is asked, so the peer
+// can gather its ICE candidates while the prompt is up, and released exactly
+// once however things end: a refusal, a withdrawn request, a negotiation that
+// fails, or a connection that ran its course.
+//
+// That last guarantee is what release is for. pion never fires a channel's
+// OnClose for a connection that never came up, so a session relying on those
+// handlers alone leaked its clipboard worker — a locked OS thread with a
+// 25 ms ticker — on every attempt that failed to connect.
+type live struct {
+	peer      *webrtc.Peer
+	track     *pion.TrackLocalStaticSample
+	input     *input.Handler
+	transfers *transfer.Session
+	// clip is set only once the operator has approved: what is on their
+	// clipboard while they decide is theirs, not the session's. The channel
+	// handlers built earlier read it through here.
+	clip atomic.Pointer[clipboardSync]
+	// fileChannel is where the clipboard poller sends; the channel only exists
+	// once the peer hands it over.
+	fileChannel atomic.Pointer[*pion.DataChannel]
 
-	closed := make(chan struct{})
-	var once sync.Once
-	markClosed := func() { once.Do(func() { close(closed) }) }
+	closed    chan struct{}
+	closeOnce sync.Once
+	released  sync.Once
+}
 
-	// The clipboard poller runs on its own thread and needs somewhere to send;
-	// the channel only exists once the peer connection hands it over.
-	var fileChannel atomic.Pointer[*pion.DataChannel]
+func (s *live) markClosed() { s.closeOnce.Do(func() { close(s.closed) }) }
+
+// release lets go of everything the session holds. Idempotent, and in the
+// order the session itself ends things: transfers and clipboard first (they
+// may still want the channel), the peer last.
+func (s *live) release() {
+	s.released.Do(func() {
+		s.transfers.Close()
+		if clip := s.clip.Load(); clip != nil {
+			(*clip).Stop()
+		}
+		s.peer.Close()
+	})
+}
+
+// prepare builds the session's state and its peer connection, which starts
+// gathering ICE candidates at once. Nothing here talks to the viewer.
+func (c *Coordinator) prepare(ctx context.Context, req Request, approver Approver) (*live, error) {
+	s := &live{closed: make(chan struct{})}
 
 	// One input handler per session: it tracks what the viewer holds down so
 	// nothing stays pressed on this machine once the viewer is gone.
-	inputHandler := input.NewHandler()
+	s.input = input.NewHandler()
 
 	// One transfer handler per session, for the same reason: whatever it was
 	// writing when the viewer left must not survive the session either.
-	transfers := transfer.NewSession(ctx, &fileApprover{approver: approver, viewerUID: req.ViewerUID},
+	// Nothing touches the disk until a batch is accepted, so it is safe to
+	// have one before the operator has said yes.
+	s.transfers = transfer.NewSession(ctx, &fileApprover{approver: approver, viewerUID: req.ViewerUID},
 		c.picker, func(format string, args ...any) { log.Printf(format, args...) })
-
-	// The clipboard rides the file channel too: its text can run to a couple of
-	// hundred kilobytes, which on the ordered input channel would queue ahead of
-	// every mouse move behind it.
-	var clip *clipboard.Sync
-	if c.clipboardMode == clipboard.ModeText {
-		var err error
-		clip, err = clipboard.NewSync(c.clipboardMode, func(raw string) {
-			if ch := fileChannel.Load(); ch != nil {
-				_ = (*ch).SendText(raw)
-			}
-		})
-		if err != nil {
-			// Non-fatal, like a failed capture: the session is still worth
-			// having without it.
-			log.Printf("[session] %s: clipboard sharing unavailable: %v", req.ID, err)
-		}
-	}
-	if clip != nil {
-		// Files the operator copies are offered to the viewer the same way the
-		// file picker's are: names and sizes only, with nothing read until the
-		// viewer asks for it.
-		var clipOffer atomic.Uint64
-		clip.OnFiles(func(paths []string) {
-			transfers.OfferFiles(fmt.Sprintf("clip-%d", clipOffer.Add(1)), paths)
-		})
-		// And files the viewer pastes go on the operator's clipboard once they
-		// are safely saved, so Ctrl+V in Explorer works.
-		transfers.OnPasted(clip.PutFiles)
-	}
 
 	hooks := webrtc.Hooks{
 		// One callback per channel of the session; what a channel carries is
@@ -407,28 +454,30 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 					// not something this channel carries, and feeding it to a
 					// JSON parser would only fail silently.
 					if msg.IsString {
-						applyInput(inputHandler, msg.Data)
+						applyInput(s.input, msg.Data)
 					}
 				})
 				dc.OnClose(func() {
-					inputHandler.ReleaseAll()
+					s.input.ReleaseAll()
 				})
 			case webrtc.FileChannelLabel:
-				transfers.Attach(dc)
-				fileChannel.Store(&dc)
+				s.transfers.Attach(dc)
+				s.fileChannel.Store(&dc)
 				dc.OnMessage(func(msg pion.DataChannelMessage) {
 					// IsString is the only thing separating a control frame
 					// from a chunk of a file.
-					if msg.IsString && clip != nil && peekType(msg.Data) == clipboard.Type {
-						clip.Handle(msg.Data)
-						return
+					if msg.IsString {
+						if clip := s.clip.Load(); clip != nil && peekType(msg.Data) == clipboard.Type {
+							(*clip).Handle(msg.Data)
+							return
+						}
 					}
-					transfers.Handle(msg.Data, msg.IsString)
+					s.transfers.Handle(msg.Data, msg.IsString)
 				})
 				dc.OnClose(func() {
-					transfers.Close()
-					if clip != nil {
-						clip.Stop()
+					s.transfers.Close()
+					if clip := s.clip.Load(); clip != nil {
+						(*clip).Stop()
 					}
 				})
 			}
@@ -436,39 +485,86 @@ func (c *Coordinator) connect(ctx context.Context, req Request, transport *signa
 		OnState: func(st pion.PeerConnectionState) {
 			log.Printf("[session] %s: state=%s", req.ID, st.String())
 			if st == pion.PeerConnectionStateFailed || st == pion.PeerConnectionStateClosed {
-				markClosed()
+				s.markClosed()
 			}
 		},
 	}
 
 	track, err := webrtc.NewVideoTrack()
 	if err != nil {
-		log.Printf("[session] %s: could not create video track: %v", req.ID, err)
-		return
+		s.transfers.Close()
+		return nil, fmt.Errorf("could not create video track: %w", err)
+	}
+	s.track = track
+
+	peer, err := preparePeer(ctx, signaling.Host, c.cfg, hooks, track)
+	if err != nil {
+		s.transfers.Close()
+		return nil, err
+	}
+	s.peer = peer
+	return s, nil
+}
+
+// sessionTransport is the signaling transport plus the liveness signal the
+// RTDB one carries: the session node disappearing means the viewer is gone.
+type sessionTransport interface {
+	signaling.Transport
+	Gone() <-chan struct{}
+}
+
+// run negotiates the prepared connection and supervises it until it ends.
+// Whatever way it ends, the session's resources are released before it
+// returns.
+func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTransport, s *live) {
+	log.Printf("[session] %s: establishing connection…", req.ID)
+
+	// The clipboard rides the file channel too: its text can run to a couple of
+	// hundred kilobytes, which on the ordered input channel would queue ahead of
+	// every mouse move behind it.
+	if c.clipboardMode == clipboard.ModeText {
+		clip, err := c.newClipboard(func(raw string) {
+			if ch := s.fileChannel.Load(); ch != nil {
+				_ = (*ch).SendText(raw)
+			}
+		})
+		if err != nil {
+			// Non-fatal, like a failed capture: the session is still worth
+			// having without it.
+			log.Printf("[session] %s: clipboard sharing unavailable: %v", req.ID, err)
+		} else {
+			// Files the operator copies are offered to the viewer the same way
+			// the file picker's are: names and sizes only, with nothing read
+			// until the viewer asks for it.
+			var clipOffer atomic.Uint64
+			clip.OnFiles(func(paths []string) {
+				s.transfers.OfferFiles(fmt.Sprintf("clip-%d", clipOffer.Add(1)), paths)
+			})
+			// And files the viewer pastes go on the operator's clipboard once
+			// they are safely saved, so Ctrl+V in Explorer works.
+			s.transfers.OnPasted(clip.PutFiles)
+			s.clip.Store(&clip)
+		}
 	}
 
-	pc, err := webrtc.Connect(ctx, signaling.Host, transport, c.cfg, hooks, track)
-	if err != nil {
+	if _, err := negotiatePeer(ctx, s.peer, transport); err != nil {
 		log.Printf("[session] %s: could not establish connection: %v", req.ID, err)
+		s.release()
 		return
 	}
 	log.Printf("[session] %s: CONNECTED", req.ID)
 	_ = c.setStatus(ctx, req.ID, statusConnected)
 
-	c.streamScreen(ctx, req.ID, track)
+	c.streamScreen(ctx, req.ID, s.track)
 
 	select {
-	case <-closed:
+	case <-s.closed:
 	case <-transport.Gone():
 		log.Printf("[session] %s: viewer left", req.ID)
 	case <-ctx.Done():
 	}
-	inputHandler.ReleaseAll()
-	transfers.Close()
-	if clip != nil {
-		clip.Stop()
-	}
-	_ = pc.Close()
+	s.input.ReleaseAll()
+	s.release()
 	log.Printf("[session] %s: connection ended", req.ID)
 }
 
@@ -507,7 +603,7 @@ func (c *Coordinator) setStatus(ctx context.Context, sessionID, status string) e
 // track. If ffmpeg is unavailable the connection stays up without video (the
 // input DataChannel still works), so video failure is non-fatal.
 func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track *pion.TrackLocalStaticSample) {
-	screen := capture.NewScreenCapture(c.ffmpegPath)
+	screen := capture.NewScreenCapture(c.capture)
 	frames, err := screen.Start(ctx)
 	if err != nil {
 		log.Printf("[session] %s: could not start screen capture (is ffmpeg installed?): %v", sessionID, err)
@@ -519,9 +615,10 @@ func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track 
 		for frame := range frames {
 			// Pion advances the RTP clock by Duration AFTER writing a sample, so
 			// first move the clock forward by the real capture gap (an empty
-			// sample only skips ticks, it sends nothing) and then write the
-			// frame with no further advance. RTP timestamps then match the
-			// actual capture times instead of a nominal 30 fps.
+			// sample only skips ticks, it sends nothing — pion/rtp's Packetize
+			// calls SkipSamples on an empty payload; verified against v1.10.5)
+			// and then write the frame with no further advance. RTP timestamps
+			// then match the actual capture times instead of a nominal 30 fps.
 			if frame.Elapsed > 0 {
 				if err := track.WriteSample(media.Sample{Duration: frame.Elapsed}); err != nil {
 					if ctx.Err() == nil {

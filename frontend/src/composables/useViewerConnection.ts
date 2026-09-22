@@ -26,6 +26,27 @@ const REJECTED_MESSAGE = 'The host rejected or ended the connection request.'
 const TIMEOUT_MESSAGE =
   'The connection timed out. The host may be offline or did not approve the request.'
 
+// Asks the browser to hand frames over as soon as they can be decoded rather
+// than holding them in its jitter buffer. The default target smooths a video
+// call; for remote control every buffered frame is felt in the hand, and a
+// frame shown late is worse than one dropped. Best effort: the property is
+// standard but recent, and its predecessor is Chromium-only.
+function preferLowLatency(receiver: RTCRtpReceiver): void {
+  // Typed loosely on purpose: the standard property is in lib.dom but not yet
+  // in every browser, and the Chromium-only predecessor is in no type at all.
+  const r = receiver as unknown as { jitterBufferTarget?: number | null; playoutDelayHint?: number }
+  const has = (name: string): boolean => name in receiver
+  try {
+    if (has('jitterBufferTarget')) {
+      r.jitterBufferTarget = 0
+    } else if (has('playoutDelayHint')) {
+      r.playoutDelayHint = 0
+    }
+  } catch {
+    // Refused: the default buffer is only slower, not wrong.
+  }
+}
+
 // Drives the viewer (answerer) side of a WebRTC connection: it creates the
 // session (plus the host's inbox entry), builds the RTCPeerConnection, and
 // runs the offer → answer → ICE exchange. Video surfaces via `remoteStream`;
@@ -90,6 +111,7 @@ export function useViewerConnection() {
       pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
       pc.ontrack = (event) => {
         remoteStream.value = event.streams[0] ?? null
+        preferLowLatency(event.receiver)
       }
       // The host offers several channels; each one is claimed by its label.
       // Assigning whichever arrives last would leave input on the wrong

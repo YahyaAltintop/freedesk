@@ -22,12 +22,25 @@ import (
 const (
 	defaultFFmpegBinary = "ffmpeg"
 	defaultFramerate    = 30
-	defaultBitrate      = "2M"
+	// defaultBitrate is the constant rate the encoder is held to, in bits per
+	// second. Constant rather than a target: see the rate-control arguments.
+	defaultBitrate = 2_000_000
+
+	// DefaultMaxWidth caps the encoded frame's width. gdigrab hands over the
+	// whole virtual desktop, so a second monitor or a 4K screen would
+	// otherwise be squeezed into the same bitrate at two to four times the
+	// pixels: the encoder falls behind 30 fps, and what does arrive is mush.
+	// 1080p at 2 Mbit/s stays legible; anything wider is scaled down to it,
+	// aspect kept.
+	DefaultMaxWidth = 1920
 
 	ivfFrameHeaderSize = 12
 	// maxElapsed caps the gap attributed to a single frame so a corrupt pts can
 	// never jump the RTP clock by minutes.
 	maxElapsed = 5 * time.Second
+
+	// warmTimeout bounds the start-up dry run of ffmpeg (see Warm).
+	warmTimeout = 30 * time.Second
 )
 
 // Frame is one encoded VP8 frame. Elapsed is the capture-time gap since the
@@ -41,28 +54,60 @@ type Frame struct {
 	Elapsed time.Duration
 }
 
+// Options selects the ffmpeg to run and how the desktop is encoded.
+type Options struct {
+	// Binary is the ffmpeg executable to run; empty picks the ffmpeg shipped
+	// next to the agent, or "ffmpeg" from PATH.
+	Binary string
+	// MaxWidth caps the encoded width in pixels; 0 means DefaultMaxWidth.
+	MaxWidth int
+}
+
 // ScreenCapture runs ffmpeg to capture and encode the desktop.
 type ScreenCapture struct {
 	binary    string
 	framerate int
-	bitrate   string
+	bitrate   int
+	maxWidth  int
 }
 
-// NewScreenCapture returns a capture with sensible real-time defaults. binary is
-// the ffmpeg executable to run; an empty value picks the ffmpeg shipped next
-// to the agent, or "ffmpeg" from PATH.
-func NewScreenCapture(binary string) *ScreenCapture {
-	return &ScreenCapture{binary: resolveBinary(binary), framerate: defaultFramerate, bitrate: defaultBitrate}
+// NewScreenCapture returns a capture with sensible real-time defaults.
+func NewScreenCapture(opts Options) *ScreenCapture {
+	width := opts.MaxWidth
+	if width <= 0 {
+		width = DefaultMaxWidth
+	}
+	return &ScreenCapture{
+		binary:    resolveBinary(opts.Binary),
+		framerate: defaultFramerate,
+		bitrate:   defaultBitrate,
+		maxWidth:  width,
+	}
 }
 
 // Binary reports the ffmpeg executable this capture will run.
 func (s *ScreenCapture) Binary() string { return s.binary }
+
+// Warm runs ffmpeg once, doing nothing, and discards the result. The first
+// run of a freshly downloaded ffmpeg pays for paging a 100 MB executable off
+// the disk and for Windows Defender looking it over — seconds, on some
+// machines — and without this that bill lands on the first viewer's first
+// frame. A missing or broken ffmpeg is not reported here; the session that
+// needs it says so, as before.
+func (s *ScreenCapture) Warm(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, warmTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.binary, "-hide_banner", "-version")
+	hideConsole(cmd)
+	_ = cmd.Run()
+}
 
 // Start launches ffmpeg and returns a channel of encoded VP8 frames. Capture
 // runs until ctx is cancelled or ffmpeg exits, at which point the channel is
 // closed. A missing ffmpeg binary is reported as a Start error.
 func (s *ScreenCapture) Start(ctx context.Context) (<-chan Frame, error) {
 	cmd := exec.CommandContext(ctx, s.binary, s.args()...)
+	hideConsole(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -88,14 +133,33 @@ func (s *ScreenCapture) Start(ctx context.Context) (<-chan Frame, error) {
 }
 
 func (s *ScreenCapture) args() []string {
+	bitrate := strconv.Itoa(s.bitrate)
 	return []string{
 		"-hide_banner", "-loglevel", "error",
 		"-f", "gdigrab",
 		"-framerate", strconv.Itoa(s.framerate),
 		"-i", "desktop",
 		"-an",
+		// Never wider than maxWidth, aspect kept, even dimensions (VP8 wants
+		// them). A desktop that already fits passes through untouched.
+		"-vf", fmt.Sprintf("scale=w='min(iw,%d)':h=-2", s.maxWidth),
 		"-c:v", "libvpx",
-		"-b:v", s.bitrate,
+		// Rate control for a live stream rather than a file: the same rate as
+		// floor and ceiling (CBR), a one-second buffer instead of libvpx's six,
+		// and a keyframe capped at three frames' worth. Left to its defaults
+		// the encoder saves up and spends it on keyframes of 100 KB and more —
+		// close to half a second of a 2 Mbit/s link every two seconds, which
+		// the viewer feels as a periodic stall; these bring one down to about
+		// 30 KB at a cost in keyframe quality that a screen recovers from in
+		// the next few frames.
+		"-b:v", bitrate, "-minrate", bitrate, "-maxrate", bitrate,
+		"-bufsize", bitrate, "-rc_init_occupancy", strconv.Itoa(s.bitrate / 2),
+		"-undershoot-pct", "100", "-overshoot-pct", "15",
+		"-max-intra-rate", "300",
+		// No look-ahead: a frame goes out the moment it is encoded. Realtime VP8
+		// already defaults to this, but that is a codec default a later ffmpeg
+		// is free to change, and here it decides the latency, so it is said.
+		"-lag-in-frames", "0",
 		"-deadline", "realtime",
 		"-cpu-used", "5",
 		"-error-resilient", "1",
@@ -105,6 +169,9 @@ func (s *ScreenCapture) args() []string {
 		// constant rate: a slow grab then appears as a wider pts gap, which the
 		// reader turns into Frame.Elapsed. Requires ffmpeg >= 5.1.
 		"-fps_mode", "passthrough",
+		// One write down the pipe per encoded frame. ffmpeg already flushes a
+		// pipe per packet; "already" is a default, not a promise.
+		"-flush_packets", "1",
 		"-f", "ivf",
 		"pipe:1",
 	}

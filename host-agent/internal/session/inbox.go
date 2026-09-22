@@ -46,14 +46,19 @@ type inboxEntry struct {
 type Inbox struct {
 	rtdb     *firebase.RTDB
 	ownerUID string
-	seen     map[string]bool
-	now      func() time.Time
-	remove   func(ctx context.Context, sessionID string)
+	// seen is every request id already handled, with when, so a stream
+	// reconnect's replay cannot dispatch one twice. Entries older than
+	// staleRequestAge are dropped as they go: a replay that old is refused as
+	// stale anyway, and without the sweep the map would grow by one entry per
+	// request for as long as the agent runs.
+	seen   map[string]time.Time
+	now    func() time.Time
+	remove func(ctx context.Context, sessionID string)
 }
 
 // NewInbox builds an inbox listener for the given owner.
 func NewInbox(rtdb *firebase.RTDB, ownerUID string) *Inbox {
-	in := &Inbox{rtdb: rtdb, ownerUID: ownerUID, seen: make(map[string]bool), now: time.Now}
+	in := &Inbox{rtdb: rtdb, ownerUID: ownerUID, seen: make(map[string]time.Time), now: time.Now}
 	in.remove = func(ctx context.Context, sessionID string) {
 		if err := rtdb.Delete(ctx, pathInbox+"/"+ownerUID+"/"+sessionID); err != nil {
 			log.Printf("[inbox] could not remove request %s: %v", sessionID, err)
@@ -140,21 +145,34 @@ func (in *Inbox) handleData(ctx context.Context, ev firebase.StreamEvent, handle
 }
 
 func (in *Inbox) dispatch(ctx context.Context, id string, entry inboxEntry, handle func(Request)) {
-	if in.seen[id] {
+	now := in.now()
+	in.forget(now)
+	if _, done := in.seen[id]; done {
 		return
 	}
-	in.seen[id] = true
+	in.seen[id] = now
 
 	// The entry is consumed either way: a request is handled exactly once, and
 	// a reconnect must never replay it.
 	in.remove(ctx, id)
 
-	age := in.now().Sub(time.UnixMilli(entry.CreatedAt))
+	age := now.Sub(time.UnixMilli(entry.CreatedAt))
 	if entry.ViewerUID == "" || age > staleRequestAge {
 		log.Printf("[inbox] dropping stale or malformed request %s (age %s)", id, age.Round(time.Second))
 		return
 	}
 	handle(Request{ID: id, ViewerUID: entry.ViewerUID, Code: entry.Code, CreatedAt: entry.CreatedAt})
+}
+
+// forget drops ids handled longer ago than staleRequestAge: a replay of one of
+// those is dropped as stale before it could be handled again, so remembering
+// it any longer only costs memory.
+func (in *Inbox) forget(now time.Time) {
+	for id, at := range in.seen {
+		if now.Sub(at) > staleRequestAge {
+			delete(in.seen, id)
+		}
+	}
 }
 
 // sleep waits for d or until ctx is done; it reports whether the wait completed.

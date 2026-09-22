@@ -13,15 +13,18 @@ import router from '@/router'
 import { useAuthStore } from '@/stores/auth.store'
 import { startServerClock } from '@/services/serverTime'
 
-// Bootstraps the application. Auth state is resolved BEFORE the first
-// navigation so route guards always see a known authentication status.
+// Bootstraps the application. The anonymous identity is resolved in the
+// background: the home page renders without it, and the one action that needs
+// a uid — connecting — waits for it itself, as does the router before the
+// session page. Awaiting it here held the first paint behind a sign-in round
+// trip, over a second on a cold visit, for a page that only shows text.
 async function bootstrap(): Promise<void> {
   const app = createApp(App)
 
   const pinia = createPinia()
   app.use(pinia)
 
-  await useAuthStore(pinia).init()
+  void useAuthStore(pinia).init()
 
   // Host presence compares server timestamps against server time; start the
   // clock now so the offset is (almost always) known by the first lookup.

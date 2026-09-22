@@ -128,6 +128,22 @@ export function useFileTransfer(
     return rows.value.filter((r) => r.batchId === batchId)
   }
 
+  // Progress is written to a row at most this often. A 32 KB chunk goes by
+  // every millisecond or two on a fast link, and every write to `sent` has
+  // the panel's computeds and its list re-evaluated — hundreds of times a
+  // second, on the thread that is also forwarding the mouse. The final value
+  // always lands, so a bar never stops short of full.
+  const PROGRESS_EVERY_MS = 100
+  const progressAt = new WeakMap<TransferRow, number>()
+  function reportProgress(row: TransferRow, sent: number): void {
+    const now = performance.now()
+    if (sent < row.size && now - (progressAt.get(row) ?? 0) < PROGRESS_EVERY_MS) {
+      return
+    }
+    progressAt.set(row, now)
+    row.sent = sent
+  }
+
   // Finishes every unfinished row of a batch the same way: the host decides per
   // batch, so the rows cannot disagree.
   function settleBatch(batchId: string, status: TransferRow['status'], reason?: TransferReason) {
@@ -202,7 +218,15 @@ export function useFileTransfer(
 
   // The file currently arriving. One at a time: the viewer accepts a file, the
   // host streams it, and only then is the next one asked for.
-  let incoming: { batchId: string; index: number; sink: FileSink; row: TransferRow } | null = null
+  // `received` is the honest byte count; `row.sent` follows it at the
+  // reporting rate, so the check at the end has to look here.
+  let incoming: {
+    batchId: string
+    index: number
+    sink: FileSink
+    row: TransferRow
+    received: number
+  } | null = null
   let pendingRequest: string | null = null
 
   function request(): void {
@@ -250,7 +274,7 @@ export function useFileTransfer(
     }
     row.status = 'receiving'
     row.sent = 0
-    incoming = { batchId: row.batchId, index: row.index, sink, row }
+    incoming = { batchId: row.batchId, index: row.index, sink, row, received: 0 }
     post({ t: 'f-accept', id: row.batchId, index: row.index })
   }
 
@@ -268,7 +292,8 @@ export function useFileTransfer(
       return
     }
     if (incoming === active) {
-      active.row.sent = Math.min(active.row.sent + chunk.byteLength, active.row.size)
+      active.received = Math.min(active.received + chunk.byteLength, active.row.size)
+      reportProgress(active.row, active.received)
     }
   }
 
@@ -278,7 +303,7 @@ export function useFileTransfer(
     }
     const active = incoming
     incoming = null
-    if (active.row.sent !== size) {
+    if (active.received !== size) {
       // Fewer bytes arrived than the host says it sent.
       await active.sink.abort()
       active.row.status = 'failed'
@@ -419,7 +444,7 @@ export function useFileTransfer(
         // Optimistic until the host's own count arrives: subtract what is still
         // queued in the browser so the bar does not run to 100% while the
         // network is still working through it.
-        row.sent = Math.max(row.sent, Math.max(0, offset - ch.bufferedAmount))
+        reportProgress(row, Math.max(row.sent, Math.max(0, offset - ch.bufferedAmount)))
       }
     }
   }

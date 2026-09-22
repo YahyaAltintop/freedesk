@@ -59,10 +59,46 @@ const videoEl = ref<HTMLVideoElement | null>(null)
 // useInputCapture tracks and reports back as `controlling`.
 const sessionReady = computed(() => state.value === 'connected' && inputReady.value)
 
+// One mouse move may wait here while the channel is still working through
+// what was queued before it. Sending more moves behind a full queue only makes
+// each of them land later; keeping the newest and sending it once there is
+// room keeps the cursor current instead of replaying where it has been. On a
+// healthy link the queue is empty again long before the next move arrives, so
+// this never engages.
+const HELD_MOVE_RETRY_MS = 16
+let heldMove: InputMessage | null = null
+let heldMoveTimer: ReturnType<typeof setTimeout> | null = null
+
 function sendInput(message: InputMessage): void {
   const channel = dataChannel.value
-  if (channel && channel.readyState === 'open') {
-    channel.send(JSON.stringify(message))
+  if (!channel || channel.readyState !== 'open') {
+    return
+  }
+  if (message.t === 'm') {
+    if (channel.bufferedAmount > 0) {
+      heldMove = message
+      if (heldMoveTimer === null) {
+        heldMoveTimer = setTimeout(flushHeldMove, HELD_MOVE_RETRY_MS)
+      }
+      return
+    }
+  } else if (heldMove) {
+    // A click, key or wheel is about to go out: the position it assumes has to
+    // arrive first, queue or no queue.
+    const move = heldMove
+    heldMove = null
+    channel.send(JSON.stringify(move))
+  }
+  heldMove = null
+  channel.send(JSON.stringify(message))
+}
+
+function flushHeldMove(): void {
+  heldMoveTimer = null
+  const move = heldMove
+  heldMove = null
+  if (move) {
+    sendInput(move)
   }
 }
 
@@ -279,6 +315,10 @@ async function handleDisconnect(): Promise<void> {
 
 onBeforeUnmount(() => {
   document.documentElement.classList.remove('fd-no-scroll')
+  if (heldMoveTimer !== null) {
+    clearTimeout(heldMoveTimer)
+    heldMoveTimer = null
+  }
   stopWatchingHost()
   void disconnect()
 })

@@ -58,6 +58,13 @@ async function loadIdentity(): Promise<void> {
   if (probing) {
     return
   }
+  if (!isWindows) {
+    // The host agent only runs on Windows; anywhere else there is nothing on
+    // the loopback to ask, so do not ask it every few seconds for the life of
+    // the tab.
+    identityChecked.value = true
+    return
+  }
   probing = true
   try {
     identity.value = await fetchLocalIdentity()
@@ -135,12 +142,15 @@ async function handleConnect(): Promise<void> {
     connectError.value = "That's this computer's own code."
     return
   }
-  if (!authStore.uid) {
-    connectError.value = authStore.error ?? 'Authentication failed.'
-    return
-  }
   busy.value = true
   try {
+    // The identity is resolved in the background at start-up; this is the one
+    // action on the page that needs it, so this is where it is waited for.
+    await authStore.init()
+    if (!authStore.uid) {
+      connectError.value = authStore.error ?? 'Authentication failed.'
+      return
+    }
     const host = await fetchHostByCode(code.value)
     if (!host) {
       connectError.value = 'No computer is registered to this code.'

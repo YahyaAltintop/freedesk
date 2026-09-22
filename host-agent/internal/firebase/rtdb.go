@@ -10,7 +10,14 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
+
+// callTimeout bounds every one-shot request. A connection that silently dies
+// — a laptop lid, a Wi-Fi hand-over, a captive portal — would otherwise park
+// its caller for good: the heartbeat goroutine would never beat again and the
+// viewer would show this host offline while it sat there waiting.
+const callTimeout = 15 * time.Second
 
 // TokenProvider supplies a valid Firebase ID token for authorization.
 type TokenProvider interface {
@@ -36,10 +43,15 @@ func ServerTimestamp() map[string]string {
 // RTDB is a minimal Realtime Database REST client: one-shot reads/writes plus
 // Server-Sent Events streaming for live updates.
 type RTDB struct {
-	baseURL    string
-	namespace  string
-	tokens     TokenProvider
-	httpClient *http.Client
+	baseURL   string
+	namespace string
+	tokens    TokenProvider
+	// streams has no timeout: a stream is meant to stay open for hours and
+	// ends through its context. calls bounds every one-shot read and write.
+	// Both share the default transport, so connections are reused between
+	// them.
+	streams *http.Client
+	calls   *http.Client
 }
 
 // NewRTDB builds a client for the given database base URL. namespace is empty
@@ -50,8 +62,8 @@ func NewRTDB(baseURL, namespace string, tokens TokenProvider) *RTDB {
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		namespace: namespace,
 		tokens:    tokens,
-		// No global timeout: streaming connections are long-lived (cancelled via ctx).
-		httpClient: &http.Client{},
+		streams:   &http.Client{},
+		calls:     &http.Client{Timeout: callTimeout},
 	}
 }
 
@@ -154,7 +166,7 @@ func (r *RTDB) write(ctx context.Context, method, path string, value, out any, s
 }
 
 func (r *RTDB) do(req *http.Request, method, path string) ([]byte, error) {
-	resp, err := r.httpClient.Do(req)
+	resp, err := r.calls.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +207,7 @@ func (r *RTDB) Stream(ctx context.Context, path string) (<-chan StreamEvent, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := r.httpClient.Do(req)
+	resp, err := r.streams.Do(req)
 	if err != nil {
 		return nil, err
 	}

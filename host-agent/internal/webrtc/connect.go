@@ -46,13 +46,60 @@ type Hooks struct {
 	OnTrack func(*pion.TrackRemote)
 }
 
+// Peer is a peer connection between being built and being negotiated: its
+// tracks and channels are attached and, for the host, its ICE candidates are
+// already being gathered, but nothing has reached the other side. The host
+// prepares one while its operator is still deciding and negotiates it once
+// they say yes, so the STUN round trips and the connection set-up overlap
+// with the prompt instead of following it. A prepared peer that is never
+// negotiated must still be Closed.
+type Peer struct {
+	pc    *pion.PeerConnection
+	role  signaling.Role
+	hooks Hooks
+
+	connected chan struct{}
+	failed    chan error
+	closed    chan struct{}
+	closeOnce sync.Once
+
+	mu sync.Mutex
+	// publish is where local candidates go once Negotiate has a transport;
+	// until then they wait in pending.
+	publish func(signaling.ICECandidate)
+	pending []signaling.ICECandidate
+	// offer is the host's, created by Prepare and published by Negotiate.
+	offer *pion.SessionDescription
+}
+
 // Connect builds a peer for the given role, performs the full offer/answer/ICE
 // exchange over the transport, and blocks until the connection is established
-// (or ctx is cancelled / the connection fails).
+// (or ctx is cancelled / the connection fails). It is Prepare followed at once
+// by Negotiate; a caller with something to do in between calls the two itself.
 func Connect(ctx context.Context, role signaling.Role, transport signaling.Transport, cfg Config, hooks Hooks, tracks ...pion.TrackLocal) (*pion.PeerConnection, error) {
+	peer, err := Prepare(ctx, role, cfg, hooks, tracks...)
+	if err != nil {
+		return nil, err
+	}
+	return peer.Negotiate(ctx, transport)
+}
+
+// Prepare builds the peer connection: tracks attached, the host's channels
+// created and — for the host — the offer set as the local description, which
+// is what starts ICE gathering. Nothing is published: candidates are held
+// until Negotiate has a transport to put them on.
+func Prepare(ctx context.Context, role signaling.Role, cfg Config, hooks Hooks, tracks ...pion.TrackLocal) (*Peer, error) {
 	pc, err := pion.NewPeerConnection(pion.Configuration{ICEServers: toICEServers(cfg.ICEServers)})
 	if err != nil {
 		return nil, err
+	}
+	p := &Peer{
+		pc:        pc,
+		role:      role,
+		hooks:     hooks,
+		connected: make(chan struct{}),
+		failed:    make(chan error, 1),
+		closed:    make(chan struct{}),
 	}
 
 	// Attach outbound media (the host's screen track) before negotiation so it
@@ -60,7 +107,7 @@ func Connect(ctx context.Context, role signaling.Role, transport signaling.Trans
 	for _, track := range tracks {
 		sender, err := pc.AddTrack(track)
 		if err != nil {
-			_ = pc.Close()
+			p.Close()
 			return nil, err
 		}
 		go drainRTCP(sender)
@@ -73,39 +120,35 @@ func Connect(ctx context.Context, role signaling.Role, transport signaling.Trans
 		})
 	}
 
-	connected := make(chan struct{})
-	failed := make(chan error, 1)
 	var once sync.Once
-
 	pc.OnConnectionStateChange(func(s pion.PeerConnectionState) {
 		if hooks.OnState != nil {
 			hooks.OnState(s)
 		}
 		switch s {
 		case pion.PeerConnectionStateConnected:
-			once.Do(func() { close(connected) })
+			once.Do(func() { close(p.connected) })
 		case pion.PeerConnectionStateFailed:
 			select {
-			case failed <- fmt.Errorf("peer-to-peer connection could not be established (failed)"):
+			case p.failed <- fmt.Errorf("peer-to-peer connection could not be established (failed)"):
 			default:
 			}
 		}
 	})
 
-	// Trickle local ICE candidates to the remote peer as they are gathered.
+	// Trickle local ICE candidates to the remote peer as they are gathered —
+	// or hold them, while there is nowhere to send them yet.
 	pc.OnICECandidate(func(c *pion.ICECandidate) {
 		if c == nil {
 			return // gathering finished
 		}
 		init := c.ToJSON()
-		go func() {
-			_ = transport.PublishLocalCandidate(ctx, signaling.ICECandidate{
-				Candidate:        init.Candidate,
-				SDPMid:           init.SDPMid,
-				SDPMLineIndex:    init.SDPMLineIndex,
-				UsernameFragment: init.UsernameFragment,
-			})
-		}()
+		p.candidate(signaling.ICECandidate{
+			Candidate:        init.Candidate,
+			SDPMid:           init.SDPMid,
+			SDPMLineIndex:    init.SDPMLineIndex,
+			UsernameFragment: init.UsernameFragment,
+		})
 	})
 
 	if role == signaling.Viewer {
@@ -114,56 +157,99 @@ func Connect(ctx context.Context, role signaling.Role, transport signaling.Trans
 				hooks.OnDataChannel(dc)
 			}
 		})
+		return p, nil
 	}
 
-	if err := negotiate(ctx, pc, role, transport, hooks); err != nil {
-		_ = pc.Close()
+	for _, label := range hostChannelLabels {
+		dc, err := pc.CreateDataChannel(label, nil)
+		if err != nil {
+			p.Close()
+			return nil, err
+		}
+		if hooks.OnDataChannel != nil {
+			hooks.OnDataChannel(dc)
+		}
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		p.Close()
+		return nil, err
+	}
+	if err := pc.SetLocalDescription(offer); err != nil {
+		p.Close()
+		return nil, err
+	}
+	p.offer = &offer
+	return p, nil
+}
+
+// candidate takes one locally gathered candidate: straight to the transport
+// once there is one, otherwise into the queue Negotiate flushes.
+func (p *Peer) candidate(c signaling.ICECandidate) {
+	p.mu.Lock()
+	publish := p.publish
+	if publish == nil {
+		p.pending = append(p.pending, c)
+		p.mu.Unlock()
+		return
+	}
+	p.mu.Unlock()
+	go publish(c)
+}
+
+// startPublishing routes candidates to the transport from now on and sends
+// the ones gathered so far. Called only once the local description has been
+// published: a candidate must never overtake the description it belongs to.
+func (p *Peer) startPublishing(ctx context.Context, transport signaling.Transport) {
+	publish := func(c signaling.ICECandidate) {
+		_ = transport.PublishLocalCandidate(ctx, c)
+	}
+	p.mu.Lock()
+	p.publish = publish
+	pending := p.pending
+	p.pending = nil
+	p.mu.Unlock()
+	for _, c := range pending {
+		go publish(c)
+	}
+}
+
+// Negotiate performs the offer/answer exchange over the transport, trickles
+// candidates both ways and blocks until the connection is established (or ctx
+// is cancelled / the connection fails). The peer is closed on any failure.
+func (p *Peer) Negotiate(ctx context.Context, transport signaling.Transport) (*pion.PeerConnection, error) {
+	if err := p.negotiate(ctx, transport); err != nil {
+		p.Close()
 		return nil, err
 	}
 
 	// Remote description is set by now, so it is safe to add remote candidates.
-	startRemoteCandidates(ctx, pc, transport)
+	startRemoteCandidates(ctx, p.pc, transport)
 
 	select {
-	case <-connected:
-		return pc, nil
-	case err := <-failed:
-		_ = pc.Close()
+	case <-p.connected:
+		return p.pc, nil
+	case err := <-p.failed:
+		p.Close()
 		return nil, err
 	case <-ctx.Done():
-		_ = pc.Close()
+		p.Close()
 		return nil, ctx.Err()
 	}
 }
 
-func negotiate(ctx context.Context, pc *pion.PeerConnection, role signaling.Role, transport signaling.Transport, hooks Hooks) error {
-	if role == signaling.Host {
-		for _, label := range hostChannelLabels {
-			dc, err := pc.CreateDataChannel(label, nil)
-			if err != nil {
-				return err
-			}
-			if hooks.OnDataChannel != nil {
-				hooks.OnDataChannel(dc)
-			}
-		}
-
-		offer, err := pc.CreateOffer(nil)
-		if err != nil {
+func (p *Peer) negotiate(ctx context.Context, transport signaling.Transport) error {
+	if p.role == signaling.Host {
+		if err := transport.PublishLocalDescription(ctx, signaling.Description{Type: p.offer.Type.String(), SDP: p.offer.SDP}); err != nil {
 			return err
 		}
-		if err := pc.SetLocalDescription(offer); err != nil {
-			return err
-		}
-		if err := transport.PublishLocalDescription(ctx, signaling.Description{Type: offer.Type.String(), SDP: offer.SDP}); err != nil {
-			return err
-		}
+		p.startPublishing(ctx, transport)
 
 		remote, err := transport.AwaitRemoteDescription(ctx)
 		if err != nil {
 			return err
 		}
-		return pc.SetRemoteDescription(pion.SessionDescription{Type: pion.NewSDPType(remote.Type), SDP: remote.SDP})
+		return p.pc.SetRemoteDescription(pion.SessionDescription{Type: pion.NewSDPType(remote.Type), SDP: remote.SDP})
 	}
 
 	// Viewer (answerer): wait for the offer, then answer.
@@ -171,18 +257,41 @@ func negotiate(ctx context.Context, pc *pion.PeerConnection, role signaling.Role
 	if err != nil {
 		return err
 	}
-	if err := pc.SetRemoteDescription(pion.SessionDescription{Type: pion.NewSDPType(remote.Type), SDP: remote.SDP}); err != nil {
+	if err := p.pc.SetRemoteDescription(pion.SessionDescription{Type: pion.NewSDPType(remote.Type), SDP: remote.SDP}); err != nil {
 		return err
 	}
 
-	answer, err := pc.CreateAnswer(nil)
+	answer, err := p.pc.CreateAnswer(nil)
 	if err != nil {
 		return err
 	}
-	if err := pc.SetLocalDescription(answer); err != nil {
+	if err := p.pc.SetLocalDescription(answer); err != nil {
 		return err
 	}
-	return transport.PublishLocalDescription(ctx, signaling.Description{Type: answer.Type.String(), SDP: answer.SDP})
+	if err := transport.PublishLocalDescription(ctx, signaling.Description{Type: answer.Type.String(), SDP: answer.SDP}); err != nil {
+		return err
+	}
+	p.startPublishing(ctx, transport)
+	return nil
+}
+
+// Close releases the peer connection. Safe to call more than once, and after
+// a successful Negotiate — which is how a session ends.
+func (p *Peer) Close() {
+	p.closeOnce.Do(func() {
+		close(p.closed)
+		_ = p.pc.Close()
+	})
+}
+
+// Closed reports whether Close has been called.
+func (p *Peer) Closed() bool {
+	select {
+	case <-p.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 func startRemoteCandidates(ctx context.Context, pc *pion.PeerConnection, transport signaling.Transport) {

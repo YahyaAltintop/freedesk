@@ -54,6 +54,10 @@ type Config struct {
 	HostName     string // defaults to the OS hostname
 	LocalAPIPort int    // loopback port serving the pairing code to the local web UI
 	FFmpegPath   string // ffmpeg executable for screen capture (empty = next to the exe, else PATH)
+	// MaxWidth caps the encoded frame's width in pixels (RC_MAX_WIDTH); 0
+	// leaves it to the capture package's default. gdigrab hands over the whole
+	// desktop, every monitor of it, and anything wider is scaled down.
+	MaxWidth     int
 	ApprovalMode string // "dialog" (Windows default) or "console"
 	// ClipboardMode is "text" (share clipboard text with the viewer, the
 	// default) or "off". Off is a real switch, not a hint: the capability is
@@ -143,6 +147,12 @@ func Load(envFilePath string) (*Config, error) {
 		cfg.LocalAPIPort = port
 	}
 
+	width, err := parseMaxWidth(os.Getenv("RC_MAX_WIDTH"))
+	if err != nil {
+		return nil, err
+	}
+	cfg.MaxWidth = width
+
 	if cfg.HostName == "" {
 		if name, err := os.Hostname(); err == nil && name != "" {
 			cfg.HostName = name
@@ -162,6 +172,24 @@ func Load(envFilePath string) (*Config, error) {
 	}
 	cfg.WebOrigins = webOrigins(cfg.ProjectID, cfg.HostingSite, os.Getenv("RC_WEB_ORIGINS"))
 	return cfg, nil
+}
+
+// minMaxWidth is the narrowest RC_MAX_WIDTH accepted: below it nothing on the
+// remote screen can be read, so the value is a typo, not a choice.
+const minMaxWidth = 320
+
+// parseMaxWidth reads RC_MAX_WIDTH: empty keeps the default (0); anything
+// else must be a width in pixels of at least minMaxWidth.
+func parseMaxWidth(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	width, err := strconv.Atoi(raw)
+	if err != nil || width < minMaxWidth {
+		return 0, fmt.Errorf("RC_MAX_WIDTH invalid: %q (a width in pixels, at least %d)", raw, minMaxWidth)
+	}
+	return width, nil
 }
 
 // webOrigins lists the Firebase Hosting origins of this project (the default

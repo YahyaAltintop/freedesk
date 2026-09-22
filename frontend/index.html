@@ -10,6 +10,14 @@
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#0b0d14" />
     <link rel="icon" href="/favicon.png" type="image/png" sizes="256x256" />
+    <!-- The first things the app does once its script runs are to sign in
+         (identitytoolkit) and to open the database socket. Warming those two
+         origins while the script is still downloading takes their DNS and TLS
+         handshakes off the first paint's path. The database host is the
+         build's VITE_FIREBASE_DATABASE_URL, substituted by Vite. -->
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="%VITE_FIREBASE_DATABASE_URL%" />
+    <link rel="preconnect" href="%VITE_FIREBASE_DATABASE_URL%" crossorigin />
     <title>FreeDesk — free remote desktop in your browser</title>
     <!-- Apply the theme before the first paint: a remembered choice, else the
          browser's preference. Kept in sync afterwards by src/composables/useTheme.ts.

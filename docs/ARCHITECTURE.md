@@ -207,7 +207,9 @@ This project uses **public STUN only**:
 - **Upgrade path:** the ICE server list is kept in a **single configuration point** (frontend `constants/webrtc.ts` and host `internal/webrtc/config.go`). Adding a `turn:` entry (+ credentials) is enough; the code does not change.
 
 ### 5.2 Desktop capture & video encoding
-ffmpeg (`gdigrab` → `libvpx` VP8 → IVF over a pipe) keeps the agent free of CGO and native codecs; only `ffmpeg.exe` is needed at runtime and it ships in the release zip's `ffmpeg\` folder. `-fps_mode passthrough` preserves real capture timestamps (ffmpeg ≥ 5.1). Faster capture (`ddagrab`) and hardware H.264 are possible later without touching the WebRTC side.
+ffmpeg (`gdigrab` → `libvpx` VP8 → IVF over a pipe) keeps the agent free of CGO and native codecs; only `ffmpeg.exe` is needed at runtime and it ships in the release zip's `ffmpeg\` folder. `-fps_mode passthrough` preserves real capture timestamps (ffmpeg ≥ 5.1). The encoder is held to a constant 2 Mbit/s with a one-second buffer and keyframes capped at three frames' worth — left to its defaults it spent a six-second buffer on 100 KB keyframes, a periodic stall on anything slower than a LAN — and the frame is never wider than 1920 px (`RC_MAX_WIDTH`), because gdigrab hands over the whole desktop, every monitor of it. Faster capture (`ddagrab`) and hardware H.264 are possible later without touching the WebRTC side.
+
+Two things overlap the operator's decision rather than follow it: the peer connection is built and gathers its ICE candidates while the Yes/No window is up (nothing is published before the yes, and a no closes it), and ffmpeg is run once, doing nothing, at start-up so the first session does not pay for paging a 100 MB executable in and for Defender's first look at it.
 
 ---
 

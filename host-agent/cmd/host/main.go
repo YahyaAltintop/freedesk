@@ -164,7 +164,14 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	// --- Incoming requests -----------------------------------------------------
 	approver := consent.New(cfg.ApprovalMode, approvalTimeout)
 	picker := consent.NewFilePicker(cfg.ApprovalMode)
-	log.Printf("[host-agent] screen capture will use: %s", capture.NewScreenCapture(cfg.FFmpegPath).Binary())
+	captureOpts := capture.Options{Binary: cfg.FFmpegPath, MaxWidth: cfg.MaxWidth}
+	screen := capture.NewScreenCapture(captureOpts)
+	log.Printf("[host-agent] screen capture will use: %s", screen.Binary())
+	// The first run of a freshly downloaded ffmpeg pays for reading a
+	// 100 MB executable off the disk and for Windows Defender looking it over
+	// — seconds, on some machines. Spend them now, in the background, rather
+	// than in front of the first viewer's first frame.
+	go screen.Warm(ctx)
 
 	// Say where accepted files would go before anyone sends one — the operator
 	// should not first learn this from a prompt. The folder itself is only
@@ -174,7 +181,7 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	log.Printf("[host-agent] files you accept will be saved to: %s", downloads)
 	transfer.SweepPartials(downloads)
 
-	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), cfg.FFmpegPath, appVersion, picker, cfg.ClipboardMode)
+	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), captureOpts, appVersion, picker, cfg.ClipboardMode)
 	inbox := session.NewInbox(rtdb, manager.UID())
 
 	// A code that keeps producing windows nobody approves has reached the
