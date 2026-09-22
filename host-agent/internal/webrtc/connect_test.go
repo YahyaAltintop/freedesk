@@ -192,6 +192,81 @@ func mustReceive(t *testing.T, name string, ch <-chan frame, want frame) {
 	}
 }
 
+// TestConnectThroughUDPMux connects the host through the single start-up
+// socket the agent uses, so a mux that stopped yielding usable host candidates
+// would fail here rather than on an operator's machine.
+func TestConnectThroughUDPMux(t *testing.T) {
+	mux, err := ListenUDP(0)
+	if err != nil {
+		t.Fatalf("could not open the socket: %v", err)
+	}
+	defer mux.Close()
+	if mux.Port() == 0 {
+		t.Fatal("the socket has no port")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	hostT, viewerT := newMemPair()
+	hostChans := newChannelSet(hostChannelLabels...)
+
+	var (
+		wg                 sync.WaitGroup
+		hostPC, viewerPC   *pion.PeerConnection
+		hostErr, viewerErr error
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		hostPC, hostErr = Connect(ctx, signaling.Host, hostT, Config{UDPMux: mux.Mux()}, Hooks{OnDataChannel: hostChans.add})
+	}()
+	go func() {
+		defer wg.Done()
+		viewerPC, viewerErr = Connect(ctx, signaling.Viewer, viewerT, Config{}, Hooks{})
+	}()
+	wg.Wait()
+
+	if hostErr != nil {
+		t.Fatalf("host could not connect through the mux: %v", hostErr)
+	}
+	if viewerErr != nil {
+		t.Fatalf("viewer could not connect: %v", viewerErr)
+	}
+	defer hostPC.Close()
+	defer viewerPC.Close()
+	mustClose(t, "host DataChannel "+InputChannelLabel, hostChans.opened[InputChannelLabel])
+}
+
+// The developer's summary of a failed connection names candidate types, and
+// tells a browser's mDNS-hidden LAN address from a real one.
+func TestCandidateType(t *testing.T) {
+	cases := map[string]string{
+		"candidate:1 1 udp 2130706431 192.168.1.5 47801 typ host generation 0":         "host",
+		"candidate:2 1 udp 1694498815 85.1.2.3 50000 typ srflx raddr 0.0.0.0 rport 0":  "srflx",
+		"candidate:3 1 udp 2130706431 3d1c2a00-1234.local 51234 typ host generation 0": "mdns",
+		"candidate:4 1 udp 41885439 10.0.0.9 3478 typ relay raddr 1.2.3.4 rport 5":     "relay",
+		"nonsense": "unknown",
+	}
+	for candidate, want := range cases {
+		if got := candidateType(candidate); got != want {
+			t.Errorf("candidateType(%q) = %q, want %q", candidate, got, want)
+		}
+	}
+
+	var s candidateStats
+	if got := s.String(); got != "local: none; remote: none" {
+		t.Errorf("empty stats: %q", got)
+	}
+	s.note(&s.local, "candidate:1 1 udp 1 192.168.1.5 1 typ host")
+	s.note(&s.local, "candidate:1 1 udp 1 192.168.1.6 1 typ host")
+	s.note(&s.local, "candidate:2 1 udp 1 85.1.2.3 1 typ srflx")
+	s.note(&s.remote, "candidate:3 1 udp 1 abc.local 1 typ host")
+	if got := s.String(); got != "local: host=2 srflx=1; remote: mdns=1" {
+		t.Errorf("stats: %q", got)
+	}
+}
+
 // mustClose waits for a channel to close, failing the test on timeout.
 func mustClose(t *testing.T, name string, ch <-chan struct{}) {
 	t.Helper()

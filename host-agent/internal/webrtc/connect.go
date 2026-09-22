@@ -3,6 +3,8 @@ package webrtc
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/pion/interceptor"
@@ -70,6 +72,83 @@ type Peer struct {
 	pending []signaling.ICECandidate
 	// offer is the host's, created by Prepare and published by Negotiate.
 	offer *pion.SessionDescription
+
+	stats candidateStats
+}
+
+// candidateStats counts the candidates each side produced, by type. When a
+// connection fails, which kinds were there says most of what there is to
+// know: no server-reflexive candidate means the STUN server was out of reach;
+// only mDNS names from the viewer means its LAN addresses could not be
+// resolved; and a full set on both sides with no connection points at a
+// firewall.
+type candidateStats struct {
+	mu     sync.Mutex
+	local  map[string]int
+	remote map[string]int
+}
+
+func (s *candidateStats) note(side *map[string]int, candidate string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if *side == nil {
+		*side = make(map[string]int)
+	}
+	(*side)[candidateType(candidate)]++
+}
+
+func (s *candidateStats) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return "local: " + describe(s.local) + "; remote: " + describe(s.remote)
+}
+
+func describe(counts map[string]int) string {
+	if len(counts) == 0 {
+		return "none"
+	}
+	types := make([]string, 0, len(counts))
+	for t := range counts {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	parts := make([]string, len(types))
+	for i, t := range types {
+		parts[i] = fmt.Sprintf("%s=%d", t, counts[t])
+	}
+	return strings.Join(parts, " ")
+}
+
+// candidateType reads the type off an ICE candidate line ("... typ host ..."),
+// reporting a host candidate that carries a multicast-DNS name rather than an
+// address as "mdns", which is how browsers hide LAN addresses.
+func candidateType(candidate string) string {
+	fields := strings.Fields(candidate)
+	typ := "unknown"
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] == "typ" {
+			typ = fields[i+1]
+			break
+		}
+	}
+	if typ == "host" && len(fields) > 4 && strings.HasSuffix(fields[4], ".local") {
+		return "mdns"
+	}
+	return typ
+}
+
+// Summary describes the candidates seen so far, for the developer's channel
+// when a connection could not be made.
+func (p *Peer) Summary() string { return p.stats.String() }
+
+// settingEngine turns the parts of Config that pion takes through its
+// SettingEngine into one. Everything not mentioned keeps pion's default.
+func settingEngine(cfg Config) pion.SettingEngine {
+	var se pion.SettingEngine
+	if cfg.UDPMux != nil {
+		se.SetICEUDPMux(cfg.UDPMux)
+	}
+	return se
 }
 
 // Connect builds a peer for the given role, performs the full offer/answer/ICE
@@ -89,7 +168,8 @@ func Connect(ctx context.Context, role signaling.Role, transport signaling.Trans
 // is what starts ICE gathering. Nothing is published: candidates are held
 // until Negotiate has a transport to put them on.
 func Prepare(ctx context.Context, role signaling.Role, cfg Config, hooks Hooks, tracks ...pion.TrackLocal) (*Peer, error) {
-	pc, err := pion.NewPeerConnection(pion.Configuration{ICEServers: toICEServers(cfg.ICEServers)})
+	api := pion.NewAPI(pion.WithSettingEngine(settingEngine(cfg)))
+	pc, err := api.NewPeerConnection(pion.Configuration{ICEServers: toICEServers(cfg.ICEServers)})
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +266,7 @@ func Prepare(ctx context.Context, role signaling.Role, cfg Config, hooks Hooks, 
 // candidate takes one locally gathered candidate: straight to the transport
 // once there is one, otherwise into the queue Negotiate flushes.
 func (p *Peer) candidate(c signaling.ICECandidate) {
+	p.stats.note(&p.stats.local, c.Candidate)
 	p.mu.Lock()
 	publish := p.publish
 	if publish == nil {
@@ -224,7 +305,7 @@ func (p *Peer) Negotiate(ctx context.Context, transport signaling.Transport) (*p
 	}
 
 	// Remote description is set by now, so it is safe to add remote candidates.
-	startRemoteCandidates(ctx, p.pc, transport)
+	p.startRemoteCandidates(ctx, transport)
 
 	select {
 	case <-p.connected:
@@ -294,7 +375,7 @@ func (p *Peer) Closed() bool {
 	}
 }
 
-func startRemoteCandidates(ctx context.Context, pc *pion.PeerConnection, transport signaling.Transport) {
+func (p *Peer) startRemoteCandidates(ctx context.Context, transport signaling.Transport) {
 	candidates, err := transport.RemoteCandidates(ctx)
 	if err != nil {
 		return
@@ -308,7 +389,8 @@ func startRemoteCandidates(ctx context.Context, pc *pion.PeerConnection, transpo
 				if !ok {
 					return
 				}
-				_ = pc.AddICECandidate(pion.ICECandidateInit{
+				p.stats.note(&p.stats.remote, c.Candidate)
+				_ = p.pc.AddICECandidate(pion.ICECandidateInit{
 					Candidate:        c.Candidate,
 					SDPMid:           c.SDPMid,
 					SDPMLineIndex:    c.SDPMLineIndex,

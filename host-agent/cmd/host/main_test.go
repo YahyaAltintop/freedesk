@@ -31,15 +31,28 @@ func TestNewPairingCodeIsSixDigits(t *testing.T) {
 	}
 }
 
-func TestRegistrationDeniedErrorPointsAtTheRules(t *testing.T) {
+// The operator reads a plain sentence; the diagnosis — which names the
+// project and the console command that fixes it — is for the developer's
+// channel only, and the cause stays unwrappable.
+func TestRegistrationDeniedErrorKeepsTheDiagnosisOffTheOperator(t *testing.T) {
 	cause := &firebase.StatusError{Code: http.StatusUnauthorized, Method: "PUT", Path: "hosts/123456", Body: `{"error":"Permission denied"}`}
 	err := registrationDeniedError(3, "my-project", cause)
 	if !errors.Is(err, cause) {
 		t.Fatal("the original error must stay unwrappable")
 	}
+	text := err.Error()
+	for _, forbidden := range []string{"firebase", "my-project", "Permission denied", "401", "rules"} {
+		if strings.Contains(strings.ToLower(text), strings.ToLower(forbidden)) {
+			t.Errorf("the operator's message must not carry %q:\n%s", forbidden, text)
+		}
+	}
+	var se *startupError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected a startupError, got %T", err)
+	}
 	for _, want := range []string{"3 times in a row", `"my-project"`, "firebase deploy --only database", "Permission denied"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error text lacks %q:\n%s", want, err)
+		if !strings.Contains(se.detail, want) {
+			t.Errorf("the diagnosis lacks %q:\n%s", want, se.detail)
 		}
 	}
 }

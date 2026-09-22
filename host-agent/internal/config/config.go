@@ -53,7 +53,16 @@ type Config struct {
 
 	HostName     string // defaults to the OS hostname
 	LocalAPIPort int    // loopback port serving the pairing code to the local web UI
-	FFmpegPath   string // ffmpeg executable for screen capture (empty = next to the exe, else PATH)
+	// UDPPort is the port every connection arrives on (RC_UDP_PORT, default
+	// 47801): one socket, opened at start-up, so the firewall question comes
+	// then and a person can allow a known port. 0 lets the system pick, and a
+	// port that is taken falls back to that.
+	UDPPort int
+	// Diagnostics mirrors the developer's channel — the technical detail
+	// behind the plain sentences the operator sees — into the status window
+	// (RC_DIAG=on). Off, it only reaches a console when there is one.
+	Diagnostics bool
+	FFmpegPath  string // ffmpeg executable for screen capture (empty = next to the exe, else PATH)
 	// MaxWidth caps the encoded frame's width in pixels (RC_MAX_WIDTH); 0
 	// leaves it to the capture package's default. gdigrab hands over the whole
 	// desktop, every monitor of it, and anything wider is scaled down.
@@ -93,6 +102,9 @@ const (
 	// defaultLocalAPIPort must match the frontend's local-agent endpoint
 	// (frontend/src/services/localAgent.ts).
 	defaultLocalAPIPort = 47800
+	// defaultUDPPort is next to it, so the two numbers a person may have to
+	// allow through a firewall are easy to remember together.
+	defaultUDPPort = 47801
 )
 
 // Load reads configuration from the given .env file (if present) and the
@@ -153,6 +165,21 @@ func Load(envFilePath string) (*Config, error) {
 	}
 	cfg.MaxWidth = width
 
+	udpPort, err := parseUDPPort(os.Getenv("RC_UDP_PORT"))
+	if err != nil {
+		return nil, err
+	}
+	cfg.UDPPort = udpPort
+
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("RC_DIAG"))); raw {
+	case "", "off":
+		cfg.Diagnostics = false
+	case "on":
+		cfg.Diagnostics = true
+	default:
+		return nil, fmt.Errorf("RC_DIAG invalid: %q (must be on or off)", raw)
+	}
+
 	if cfg.HostName == "" {
 		if name, err := os.Hostname(); err == nil && name != "" {
 			cfg.HostName = name
@@ -172,6 +199,20 @@ func Load(envFilePath string) (*Config, error) {
 	}
 	cfg.WebOrigins = webOrigins(cfg.ProjectID, cfg.HostingSite, os.Getenv("RC_WEB_ORIGINS"))
 	return cfg, nil
+}
+
+// parseUDPPort reads RC_UDP_PORT: empty is the default, 0 means any free
+// port, anything else a port number.
+func parseUDPPort(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultUDPPort, nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 0 || port > 65535 {
+		return 0, fmt.Errorf("RC_UDP_PORT invalid: %q (a port between 1 and 65535, or 0 for any)", raw)
+	}
+	return port, nil
 }
 
 // minMaxWidth is the narrowest RC_MAX_WIDTH accepted: below it nothing on the

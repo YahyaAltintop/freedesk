@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/capture"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/clipboard"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/consent"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/diag"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/input"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/protocol"
@@ -315,7 +317,8 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 	// the answer, the session is released exactly once on the way out.
 	s, err := c.prepare(sessionCtx, req, approver)
 	if err != nil {
-		log.Printf("[session] %s: could not prepare the connection: %v", req.ID, err)
+		log.Printf("[session] %s: the connection could not be set up on this computer", req.ID)
+		diag.Printf("[session] %s: prepare: %v", req.ID, err)
 		c.finish(req)
 		return
 	}
@@ -444,7 +447,7 @@ func (c *Coordinator) prepare(ctx context.Context, req Request, approver Approve
 				// the signal that it is old.
 				hello := protocol.NewHello(c.version, c.capabilities()...)
 				if err := dc.SendText(hello.Encode()); err != nil {
-					log.Printf("[session] %s: could not send hello: %v", req.ID, err)
+					diag.Printf("[session] %s: could not send hello: %v", req.ID, err)
 				}
 			})
 			switch dc.Label() {
@@ -531,7 +534,8 @@ func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTra
 		if err != nil {
 			// Non-fatal, like a failed capture: the session is still worth
 			// having without it.
-			log.Printf("[session] %s: clipboard sharing unavailable: %v", req.ID, err)
+			log.Printf("[session] %s: clipboard sharing is not available for this connection", req.ID)
+			diag.Printf("[session] %s: clipboard: %v", req.ID, err)
 		} else {
 			// Files the operator copies are offered to the viewer the same way
 			// the file picker's are: names and sizes only, with nothing read
@@ -548,7 +552,8 @@ func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTra
 	}
 
 	if _, err := negotiatePeer(ctx, s.peer, transport); err != nil {
-		log.Printf("[session] %s: could not establish connection: %v", req.ID, err)
+		explainFailure(req.ID, err, ctx.Err() != nil)
+		diag.Printf("[session] %s: negotiation: %v; candidates %s", req.ID, err, s.peer.Summary())
 		s.release()
 		return
 	}
@@ -566,6 +571,24 @@ func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTra
 	s.input.ReleaseAll()
 	s.release()
 	log.Printf("[session] %s: connection ended", req.ID)
+}
+
+// explainFailure tells the operator, in words they can act on, why a
+// connection that was approved never came up. The viewer leaving is one
+// story; every other failure is the network's, and on the machine itself the
+// one thing that causes it — and that the operator can change — is the
+// firewall's answer.
+func explainFailure(sessionID string, err error, stopping bool) {
+	switch {
+	case stopping:
+		return
+	case errors.Is(err, signaling.ErrSessionGone):
+		log.Printf("[session] %s: the other side gave up before the connection was made", sessionID)
+	default:
+		log.Printf("[session] %s: the other computer could not reach this one.", sessionID)
+		log.Println("[session]   If Windows asked whether to allow FreeDesk through the firewall, choose Allow (Private and Public).")
+		log.Println("[session]   On some networks (mobile data, shared or corporate Wi-Fi) a direct connection is not possible.")
+	}
 }
 
 // acquire reserves the single session slot.
@@ -606,7 +629,8 @@ func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track 
 	screen := capture.NewScreenCapture(c.capture)
 	frames, err := screen.Start(ctx)
 	if err != nil {
-		log.Printf("[session] %s: could not start screen capture (is ffmpeg installed?): %v", sessionID, err)
+		log.Printf("[session] %s: screen sharing could not start: the ffmpeg folder that came with the program is missing or damaged. The connection stays up without a picture.", sessionID)
+		diag.Printf("[session] %s: capture: %v", sessionID, err)
 		return
 	}
 	log.Printf("[session] %s: screen streaming started", sessionID)
@@ -622,14 +646,14 @@ func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track 
 			if frame.Elapsed > 0 {
 				if err := track.WriteSample(media.Sample{Duration: frame.Elapsed}); err != nil {
 					if ctx.Err() == nil {
-						log.Printf("[session] %s: could not advance video clock: %v", sessionID, err)
+						diag.Printf("[session] %s: could not advance video clock: %v", sessionID, err)
 					}
 					return
 				}
 			}
 			if err := track.WriteSample(media.Sample{Data: frame.Data}); err != nil {
 				if ctx.Err() == nil {
-					log.Printf("[session] %s: could not write video sample: %v", sessionID, err)
+					diag.Printf("[session] %s: could not write video sample: %v", sessionID, err)
 				}
 				return
 			}

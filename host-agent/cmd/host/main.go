@@ -11,12 +11,14 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -25,7 +27,9 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/capture"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/config"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/consent"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/diag"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firewall"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/host"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/localapi"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/session"
@@ -60,6 +64,14 @@ const (
 	sessionDrainTimeout = 3 * time.Second
 	shutdownTimeout     = 4 * time.Second
 	registerAttempts    = 3
+
+	// firewallCheckTimeout bounds the PowerShell query behind the firewall
+	// warning; a machine where that takes longer simply gets no warning.
+	// firewallRecheck is how often the question is asked again while the
+	// answer keeps viewers out, so the warning clears once the operator
+	// has clicked Allow.
+	firewallCheckTimeout = 30 * time.Second
+	firewallRecheck      = 45 * time.Second
 )
 
 func init() {
@@ -90,10 +102,22 @@ func main() {
 		}
 	}
 	if win == nil {
+		// A console run is a developer's run: the technical channel goes
+		// where the log goes.
+		diag.SetOutput(os.Stderr)
 		os.Exit(runMain(ctx, cfg, cfgErr, nil))
 	}
-	// From here on every log line is also a line in the window's activity pane.
-	log.SetOutput(ui.Tee(win, ui.Echo()))
+	// From here on every log line is also a line in the window's activity
+	// pane. The developer's channel reaches the console, if there is one, and
+	// the pane too only when asked (RC_DIAG=on): the pane is for the operator,
+	// and a Google error code is not something they can act on.
+	echo := ui.Echo()
+	log.SetOutput(ui.Tee(win, echo))
+	if cfgErr == nil && cfg.Diagnostics {
+		diag.SetOutput(ui.Tee(win, echo))
+	} else {
+		diag.SetOutput(echo)
+	}
 	log.Printf("[host-agent] FreeDesk host agent %s", appVersion)
 	go func() { win.Done(runMain(ctx, cfg, cfgErr, win)) }()
 	os.Exit(win.Loop())
@@ -110,13 +134,46 @@ func runMain(ctx context.Context, cfg *config.Config, cfgErr error, win ui.Windo
 		return 0
 	}
 	log.Printf("[host-agent] error: %v", err)
+	var se *startupError
+	if errors.As(err, &se) {
+		diag.Printf("[host-agent] %s", se.detail)
+	}
 	return 1
 }
+
+// startupError is a failure the operator is told about in plain words. The
+// detail — what a developer would want to know — goes to the developer's
+// channel, and the cause stays unwrappable for errors.Is.
+type startupError struct {
+	plain  string
+	detail string
+	cause  error
+}
+
+func (e *startupError) Error() string { return e.plain }
+func (e *startupError) Unwrap() error { return e.cause }
 
 func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	// Ctrl+C in a console and the window's close button end the same context.
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// --- Network ---------------------------------------------------------------
+	// The one UDP socket every connection will use is opened before anything
+	// else. Windows asks whether to let a program through its firewall the
+	// moment the program first listens: better now, while the operator is
+	// looking at the window, than later behind a consent prompt where the
+	// question is missed and every viewer's packets are dropped in silence.
+	iceCfg := webrtc.DefaultConfig()
+	if mux, err := webrtc.ListenUDP(cfg.UDPPort); err != nil {
+		log.Println("[host-agent] the usual connection port could not be opened; connections will use whatever port is free")
+		diag.Printf("[host-agent] UDP port %d: %v", cfg.UDPPort, err)
+	} else {
+		defer mux.Close()
+		iceCfg.UDPMux = mux.Mux()
+		log.Printf("[host-agent] connections arrive on UDP port %d", mux.Port())
+	}
+	go watchFirewall(ctx, win)
 
 	// --- Newer version? Asked beside the start-up, never in front of it -------
 	if cfg.UpdateCheck {
@@ -128,7 +185,11 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	authClient := auth.NewClient(cfg.APIKey, cfg.AuthBaseURL, cfg.TokenBaseURL)
 	manager, err := auth.NewManager(ctx, authClient)
 	if err != nil {
-		return err
+		return &startupError{
+			plain:  "Could not sign in. Check that this computer is online, then start the program again.",
+			detail: fmt.Sprintf("sign-in failed: %v", err),
+			cause:  err,
+		}
 	}
 	log.Printf("[host-agent] authenticated (anonymous, uid=%s)", manager.UID())
 
@@ -152,7 +213,8 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 		Version: appVersion,
 	}, cfg.WebOrigins)
 	if err != nil {
-		log.Printf("[host-agent] failed to start local code endpoint (port %d): %v — the web UI will not be able to show this machine's code", cfg.LocalAPIPort, err)
+		log.Println("[host-agent] the FreeDesk web page opened on this computer will not be able to show the code by itself; read it from this window instead")
+		diag.Printf("[host-agent] local code endpoint on port %d: %v", cfg.LocalAPIPort, err)
 	} else {
 		defer api.Close()
 		log.Printf("[host-agent] local code endpoint ready: http://127.0.0.1:%d/identity", cfg.LocalAPIPort)
@@ -181,7 +243,7 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	log.Printf("[host-agent] files you accept will be saved to: %s", downloads)
 	transfer.SweepPartials(downloads)
 
-	coordinator := session.NewCoordinator(rtdb, manager.UID(), webrtc.DefaultConfig(), captureOpts, appVersion, picker, cfg.ClipboardMode)
+	coordinator := session.NewCoordinator(rtdb, manager.UID(), iceCfg, captureOpts, appVersion, picker, cfg.ClipboardMode)
 	inbox := session.NewInbox(rtdb, manager.UID())
 
 	// A code that keeps producing windows nobody approves has reached the
@@ -215,13 +277,83 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := registrar.Unregister(shutdownCtx, current.get()); err != nil {
-		log.Printf("[host-agent] could not remove host record: %v", err)
+		log.Println("[host-agent] the code could not be withdrawn; it stops working on its own within a few minutes")
+		diag.Printf("[host-agent] unregister: %v", err)
 	}
 	if err := manager.DeleteAccount(shutdownCtx); err != nil {
-		log.Printf("[host-agent] could not delete anonymous identity: %v", err)
+		diag.Printf("[host-agent] could not delete the anonymous identity: %v", err)
 	}
 	log.Println("[host-agent] shut down.")
 	return nil
+}
+
+// watchFirewall tells the operator when Windows Defender Firewall would keep
+// every viewer out: the one thing on the machine itself that does, and one
+// nobody thinks of, because the program looks healthy in every other way and
+// a viewer only sees "could not connect". The question Windows asks at
+// start-up is easy to miss or to cancel, and an old allow rule may cover the
+// wrong kind of network. The check runs PowerShell, so it takes a few seconds
+// and happens in the background; while the answer is bad it is asked again
+// now and then, so the warning clears once Allow has been clicked.
+func watchFirewall(ctx context.Context, win ui.Window) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	warned := false
+	for {
+		st, err := checkFirewall(ctx, exe)
+		if err != nil {
+			diag.Printf("[host-agent] firewall check: %v", err)
+			return
+		}
+		diag.Printf("[host-agent] firewall: enabled=%v blocked=%v allowed=%v elsewhere=%v network=%q",
+			st.Enabled, st.Blocked, st.Allowed, st.Elsewhere, st.Network)
+		if st.Reachable() {
+			if warned && ctx.Err() == nil {
+				log.Println("[host-agent] Windows now lets other computers connect to this one.")
+				setStatus(win, "Waiting for connection requests…")
+			}
+			return
+		}
+		if !warned {
+			warned = true
+			explainFirewall(st)
+			setStatus(win, "Windows is blocking connections to this computer")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(firewallRecheck):
+		}
+	}
+}
+
+func checkFirewall(ctx context.Context, exe string) (firewall.Status, error) {
+	ctx, cancel := context.WithTimeout(ctx, firewallCheckTimeout)
+	defer cancel()
+	return firewall.Check(ctx, exe)
+}
+
+// explainFirewall says what Windows is doing and what to click, in words for
+// the person at the machine.
+func explainFirewall(st firewall.Status) {
+	switch {
+	case st.Blocked:
+		log.Println("[host-agent] Windows is blocking this program's network access, so nobody can connect to this computer.")
+		log.Println("[host-agent]   Windows Security > Firewall & network protection > Allow an app through firewall:")
+		log.Println("[host-agent]   remove the entry that blocks FreeDesk, then allow it with both Private and Public ticked.")
+	case len(st.Elsewhere) > 0:
+		log.Printf("[host-agent] Windows allows this program only on %s networks, but this computer is on a %s network now, so nobody can connect to it.",
+			strings.Join(st.Elsewhere, " and "), st.Network)
+		log.Println("[host-agent]   Windows Security > Firewall & network protection > Allow an app through firewall:")
+		log.Println("[host-agent]   find FreeDesk (freedesk.exe) and tick both Private and Public.")
+	default:
+		log.Println("[host-agent] Windows has not yet allowed this program to receive connections, so nobody can connect to this computer.")
+		log.Println("[host-agent]   If a Windows Security window is asking about FreeDesk, click \"Allow access\".")
+		log.Println("[host-agent]   Otherwise: Windows Security > Firewall & network protection > Allow an app through firewall >")
+		log.Println("[host-agent]   Allow another app... > choose freedesk.exe, and tick both Private and Public.")
+	}
 }
 
 // registerWithFreshCode publishes the host under a random code, picking a new
@@ -237,23 +369,33 @@ func registerWithFreshCode(ctx context.Context, registrar *host.Registrar, name,
 			return code, nil
 		}
 		if !firebase.IsPermissionDenied(err) {
-			return "", err
+			return "", &startupError{
+				plain:  "Could not reach the service. Check that this computer is online, then start the program again.",
+				detail: fmt.Sprintf("registering the host record: %v", err),
+				cause:  err,
+			}
 		}
 		if attempt < registerAttempts {
-			log.Printf("[host-agent] code %s is taken — generating a new code", code)
+			log.Println("[host-agent] that code is taken; picking another")
 			continue
 		}
 		return "", registrationDeniedError(attempt, projectID, err)
 	}
 }
 
-// registrationDeniedError explains a run of consecutive denials: several
-// random codes being taken at the same moment is practically impossible, so
-// the project's security rules are almost certainly missing.
+// registrationDeniedError explains a run of consecutive denials. The operator
+// hears that it did not work and may pass; the developer's channel gets the
+// diagnosis: several random codes being taken at the same moment is
+// practically impossible, so the project's security rules are almost
+// certainly missing.
 func registrationDeniedError(attempts int, projectID string, err error) error {
-	return fmt.Errorf("the database refused to publish this computer %d times in a row (%w)\n"+
-		"  -> The security rules are probably not deployed to project %q: run `firebase deploy --only database` in the firebase folder (see firebase/README.md).",
-		attempts, err, projectID)
+	return &startupError{
+		plain: "This computer could not be made available for connections right now. Please try again in a few minutes.",
+		detail: fmt.Sprintf("the database refused to publish this computer %d times in a row (%v): "+
+			"the security rules are probably not deployed to project %q — run `firebase deploy --only database` in the firebase folder (see firebase/README.md)",
+			attempts, err, projectID),
+		cause: err,
+	}
 }
 
 // pairing is the code this machine is currently published under. It changes
@@ -334,8 +476,9 @@ func rotateCode(ctx context.Context, registrar *host.Registrar, current *pairing
 	old := current.get()
 	fresh, err := registerWithFreshCode(ctx, registrar, cfg.HostName, cfg.ProjectID)
 	if err != nil {
-		log.Printf("[host-agent] %d connection requests in a row were not approved, but a new code could not be published (%v); the code %s stays in use",
-			streak, err, formatPairingCode(old))
+		log.Printf("[host-agent] %d connection requests in a row were not approved, but a new code could not be published; the code %s stays in use",
+			streak, formatPairingCode(old))
+		diag.Printf("[host-agent] rotating the code: %v", err)
 		return
 	}
 	current.set(fresh)
@@ -343,7 +486,8 @@ func rotateCode(ctx context.Context, registrar *host.Registrar, current *pairing
 		api.Update(localapi.Identity{Code: fresh, Name: cfg.HostName, Version: appVersion})
 	}
 	if err := registrar.Unregister(ctx, old); err != nil {
-		log.Printf("[host-agent] could not retire the old code %s: %v (it expires on its own after 5 minutes)", formatPairingCode(old), err)
+		log.Printf("[host-agent] the old code %s could not be retired at once; it expires on its own after 5 minutes", formatPairingCode(old))
+		diag.Printf("[host-agent] retiring the old code: %v", err)
 	}
 	log.Printf("[host-agent] %d connection requests in a row were not approved: whoever has the old code %s can no longer use it.",
 		streak, formatPairingCode(old))
@@ -354,16 +498,28 @@ func rotateCode(ctx context.Context, registrar *host.Registrar, current *pairing
 func runHeartbeat(ctx context.Context, registrar *host.Registrar, current *pairing, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	// The operator hears once when contact is lost and once when it is back;
+	// the beat-by-beat detail is for the developer's channel.
+	down := false
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := registrar.Heartbeat(ctx, current.get()); err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				log.Printf("[host-agent] heartbeat error: %v", err)
+			err := registrar.Heartbeat(ctx, current.get())
+			if ctx.Err() != nil {
+				return
+			}
+			switch {
+			case err != nil && !down:
+				down = true
+				log.Println("[host-agent] lost contact with the service; the code stops working until it is back")
+				diag.Printf("[host-agent] heartbeat: %v", err)
+			case err != nil:
+				diag.Printf("[host-agent] heartbeat: %v", err)
+			case down:
+				down = false
+				log.Println("[host-agent] back in contact with the service")
 			}
 		}
 	}

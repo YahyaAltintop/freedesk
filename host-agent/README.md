@@ -40,6 +40,8 @@ Release builds have the Firebase values embedded (`-ldflags -X`, see `.github/wo
 | `RC_MAX_WIDTH` | Widest frame the encoder is given, in pixels (default 1920). gdigrab hands over the whole desktop, every monitor of it; anything wider is scaled down to this, aspect kept, so the 2 Mbit/s video budget still covers what it encodes |
 | `RC_APPROVAL` | `dialog` (default on Windows) or `console` (`y` + Enter, and no status window; used by tests and headless runs) |
 | `RC_LOCAL_PORT` | Loopback port for the code endpoint (default 47800; must match the viewer) |
+| `RC_UDP_PORT` | The one UDP port every connection arrives on (default 47801; `0` = any free port, and a taken port falls back to that). Opened first thing at start-up, so Windows asks its firewall question then, while the operator is looking, and so an administrator can allow a known port |
+| `RC_DIAG` | `off` (default) or `on`: mirror the developer's channel — Google error codes, HTTP statuses, ICE candidate summaries, the console commands that fix things — into the window's Activity box. It always reaches the console when the agent was started from one; the window itself only ever shows plain sentences |
 | `RC_UPDATE_CHECK` | `on` (default) or `off`: at start-up the agent asks `api.github.com` once, in the background, whether a newer release exists and shows a purple **Update to …** button if so. It never downloads anything; any failure (offline, GitHub's rate limit) is silent |
 | `RC_GITHUB_REPO` | `owner/name` whose releases that check looks at (default: the repository that built the exe, `YahyaAltintop/freedesk` for source builds) |
 | `RC_HOSTING_SITE` | Firebase Hosting site id when it differs from the project id (`firebase.json` → `hosting.site`); release builds read it from `firebase.json` automatically |
@@ -58,14 +60,19 @@ A development build is a console program that also opens the status window, so t
 Stop it by closing the window or with Ctrl+C: the agent finishes the current session, removes its host record and deletes its anonymous account (about 3 seconds); the window says "Stopping…" meanwhile.
 
 ## Troubleshooting
-When start-up fails, the window shows **Could not start** and, in its Activity box, the reason and (for the known ones) what to fix; it stays open until you close it. With `RC_APPROVAL=console` the message goes to the console instead and the agent exits at once.
+The window talks to the operator in plain sentences and never shows an error code, a status or a console command: none of those is something the person who double-clicked the exe can act on. The technical detail behind each sentence goes to the **developer's channel**: the console, when the agent was started from one, and the window's Activity box as well when `RC_DIAG=on` (a line in a `.env` next to the exe). When start-up fails the window shows **Could not start** and stays open until closed; with `RC_APPROVAL=console` the agent exits at once instead.
 
-| Message | Meaning |
-|---------|---------|
-| `API_KEY_HTTP_REFERRER_BLOCKED` | The API key is limited to websites. The agent needs a key with no application restrictions (`FIREBASE_AGENT_API_KEY` for releases). |
-| `API_KEY_SERVICE_BLOCKED` | The key's API restrictions exclude *Identity Toolkit API* / *Token Service API*. Allow both or don't restrict the key. |
-| `ADMIN_ONLY_OPERATION` | Anonymous sign-in is disabled: Firebase Console → Authentication → Sign-in method → Anonymous. |
-| `refused to publish this computer 3 times in a row` | The security rules are not deployed: `cd firebase && firebase deploy --only database`. |
+| The window says | What it means, and the fix |
+|-----------------|----------------------------|
+| *Could not sign in.* | Google rejected the anonymous sign-in. The developer's channel names the reason: `API_KEY_HTTP_REFERRER_BLOCKED` (the key is limited to websites; the agent needs one with no application restrictions, `FIREBASE_AGENT_API_KEY` for releases), `API_KEY_SERVICE_BLOCKED` (the key's API restrictions exclude *Identity Toolkit API* / *Token Service API*), `ADMIN_ONLY_OPERATION` (anonymous sign-in is disabled: Firebase Console → Authentication → Sign-in method → Anonymous). |
+| *This computer could not be made available for connections right now.* | The database refused the host record three times in a row. The security rules are not deployed (`cd firebase && firebase deploy --only database`), or this build points at a project other than the one the rules are in. |
+| *Could not reach the service.* | The database could not be reached at all: no internet, or a proxy in the way. |
+| *Windows has not yet allowed this program to receive connections.* | Windows Defender Firewall has no inbound allow rule for this `freedesk.exe` (rules are per path: a zip unpacked somewhere new starts from nothing). The question Windows asks at start-up was missed, or the account is not an administrator and cannot answer it. Windows Security → Firewall & network protection → Allow an app through firewall → Allow another app… → `freedesk.exe`, Private and Public. The agent asks Windows again every 45 s and clears the warning by itself. |
+| *Windows allows this program only on Public networks, but this computer is on a Private network now.* | The allow rule exists, but for the wrong kind of network: only one of Private / Public was ticked. Tick both. |
+| *Windows is blocking this program's network access.* | Windows Defender Firewall holds an inbound **block** rule for `freedesk.exe`: its "allow this app?" question was answered with Cancel, or the program was blocked by hand. A block rule beats every allow rule. Remove the blocking entry, then allow FreeDesk on Private and Public. |
+| *The other computer could not reach this one.* | ICE found no working path in 30 s. On the same network: the firewall question at start-up was not answered with Allow (see the line above). On different networks: FreeDesk uses STUN only, and a symmetric NAT or carrier-grade NAT (mobile data, many shared and corporate networks) cannot be crossed without a TURN relay, which the project deliberately does not run. The developer's channel lists which candidate types each side had: no `srflx` means the STUN server was unreachable; only `mdns` from the viewer means its LAN address could not be resolved. |
+| *Screen sharing could not start.* | `ffmpeg\ffmpeg.exe` is not next to the agent (or `RC_FFMPEG_PATH` points at nothing). The connection and the mouse/keyboard still work. |
+| *Lost contact with the service.* | A heartbeat failed; the code stops resolving after 90 s and comes back on its own when the connection does. |
 
 ## Tests
 ```bash

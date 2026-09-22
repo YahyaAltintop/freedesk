@@ -10,8 +10,10 @@ This folder lets someone else see and control THIS computer from a browser.
    "Unknown publisher": the program is not signed yet. Click "More info",
    then "Run anyway". To be sure of what you downloaded, compare the zip's
    SHA-256 with the .sha256 file on the release page.
-   Windows may also ask you to allow network access for the program: allow it
-   (WebRTC needs to send video directly to the other computer).
+   As soon as it starts, Windows may ask whether to allow the program to use
+   the network: click "Allow access" with both Private and Public ticked. If
+   that question is cancelled or missed, nobody can connect to this computer;
+   the window then says so and tells you where in Windows Security to fix it.
 2. Tell the code to the person who should connect. They open the FreeDesk
    web page in their browser, type the code and press Connect.
 3. A window appears on this computer asking whether to allow the connection.
