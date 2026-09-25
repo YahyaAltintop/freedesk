@@ -47,7 +47,7 @@ func collectFrames(t *testing.T, stream []byte) []Frame {
 
 	frames := make(chan Frame, 16)
 	go func() {
-		readIVF(ctx, bytes.NewReader(stream), frames)
+		readIVF(ctx, bytes.NewReader(stream), frames, t.Logf)
 		close(frames)
 	}()
 

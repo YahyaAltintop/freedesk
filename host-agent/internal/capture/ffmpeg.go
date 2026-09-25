@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/pion/webrtc/v4/pkg/media/ivfreader"
+
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/diag"
 )
 
 const (
@@ -61,6 +63,12 @@ type Options struct {
 	Binary string
 	// MaxWidth caps the encoded width in pixels; 0 means DefaultMaxWidth.
 	MaxWidth int
+	// Quiet routes ffmpeg's stderr and the IVF read errors to the diagnostic
+	// channel instead of the operator's activity pane. A capture that is being
+	// relaunched every second — because the desktop it grabs keeps going away,
+	// as with a UAC prompt on the secure desktop — would otherwise fill the
+	// status window with technical lines the operator cannot act on.
+	Quiet bool
 }
 
 // ScreenCapture runs ffmpeg to capture and encode the desktop.
@@ -69,6 +77,7 @@ type ScreenCapture struct {
 	framerate int
 	bitrate   int
 	maxWidth  int
+	quiet     bool
 }
 
 // NewScreenCapture returns a capture with sensible real-time defaults.
@@ -82,6 +91,7 @@ func NewScreenCapture(opts Options) *ScreenCapture {
 		framerate: defaultFramerate,
 		bitrate:   defaultBitrate,
 		maxWidth:  width,
+		quiet:     opts.Quiet,
 	}
 }
 
@@ -121,12 +131,16 @@ func (s *ScreenCapture) Start(ctx context.Context) (<-chan Frame, error) {
 		return nil, fmt.Errorf("could not start ffmpeg (is it installed?): %w", err)
 	}
 
-	go logStderr(stderr)
+	logf := log.Printf
+	if s.quiet {
+		logf = diag.Printf
+	}
+	go logStderr(stderr, logf)
 
 	frames := make(chan Frame)
 	go func() {
 		defer close(frames)
-		readIVF(ctx, stdout, frames)
+		readIVF(ctx, stdout, frames, logf)
 		_ = cmd.Wait()
 	}()
 	return frames, nil
@@ -181,11 +195,11 @@ func (s *ScreenCapture) args() []string {
 // header is validated by Pion's reader; the 12-byte frame headers are parsed
 // here because Pion rescales the pts into a unit that is neither raw pts nor
 // seconds.
-func readIVF(ctx context.Context, r io.Reader, out chan<- Frame) {
+func readIVF(ctx context.Context, r io.Reader, out chan<- Frame, logf func(string, ...any)) {
 	_, header, err := ivfreader.NewWith(r)
 	if err != nil {
 		if ctx.Err() == nil {
-			log.Printf("[capture] could not read IVF header: %v", err)
+			logf("[capture] could not read IVF header: %v", err)
 		}
 		return
 	}
@@ -200,7 +214,7 @@ func readIVF(ctx context.Context, r io.Reader, out chan<- Frame) {
 	for {
 		if _, err := io.ReadFull(r, frameHeader); err != nil {
 			if ctx.Err() == nil && !errors.Is(err, io.EOF) {
-				log.Printf("[capture] could not read frame header: %v", err)
+				logf("[capture] could not read frame header: %v", err)
 			}
 			return
 		}
@@ -210,7 +224,7 @@ func readIVF(ctx context.Context, r io.Reader, out chan<- Frame) {
 		data := make([]byte, size)
 		if _, err := io.ReadFull(r, data); err != nil {
 			if ctx.Err() == nil {
-				log.Printf("[capture] could not read frame: %v", err)
+				logf("[capture] could not read frame: %v", err)
 			}
 			return
 		}
@@ -244,10 +258,10 @@ func elapsedBetween(prev, cur uint64, tickSeconds float64) time.Duration {
 	return elapsed
 }
 
-func logStderr(r io.Reader) {
+func logStderr(r io.Reader, logf func(string, ...any)) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		log.Printf("[ffmpeg] %s", scanner.Text())
+		logf("[ffmpeg] %s", scanner.Text())
 	}
 	// The pipe closes when ffmpeg exits; any read error is not actionable here.
 	_ = scanner.Err()

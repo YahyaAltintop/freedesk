@@ -34,6 +34,17 @@ const (
 	// sync after the inbox announced it.
 	snapshotTimeout = 5 * time.Second
 	cleanupTimeout  = 10 * time.Second
+
+	// captureRetryBackoff is how long streamScreen waits before relaunching
+	// ffmpeg after it stops on its own. ffmpeg most often stops because Windows
+	// switched to the UAC "secure desktop" for an elevation prompt, which
+	// gdigrab cannot read; the pause keeps a prompt that lingers from respawning
+	// a 100 MB process many times a second.
+	captureRetryBackoff = 1 * time.Second
+	// captureGapCap bounds the media-clock jump credited to a capture restart,
+	// matching the per-frame cap the IVF reader already applies, so a long time
+	// on the secure desktop cannot lurch the viewer's clock by minutes.
+	captureGapCap = 5 * time.Second
 )
 
 // Approver decides whether a request the operator was asked about may
@@ -57,8 +68,8 @@ const maxUnansweredPrompts = 3
 
 // A refusal buys the operator some quiet. A viewer who re-offers the moment
 // they hear "no" would otherwise put a fresh window up as fast as the operator
-// can close one — and the window is topmost and takes the foreground. The gap
-// doubles with each refusal in a row and is forgotten on a yes, so an honest
+// can close one — and the window is topmost and raises itself to the front. The
+// gap doubles with each refusal in a row and is forgotten on a yes, so an honest
 // second try costs ten seconds and a campaign costs minutes.
 const (
 	refusalBackoffMin = 10 * time.Second
@@ -138,8 +149,8 @@ func (a *fileApprover) AskFiles(ctx context.Context, files []transfer.FileOffer,
 // without a yes before the coordinator reports it.
 //
 // Whoever knows the code can put a window on this screen every 45 seconds for
-// as long as they like: the prompt is topmost and takes the foreground, and
-// each one is a chance for a click meant for something else to land on it.
+// as long as they like: the prompt is topmost and raises itself to the front,
+// and each one is a chance for a click meant for something else to land on it.
 // One prompt at a time bounds the rate, not the duration. Three unapproved in
 // a row means the code is producing windows nobody wants, and the right move is
 // the same however it happened: a fresh code the operator can pass on and a
@@ -623,40 +634,123 @@ func (c *Coordinator) setStatus(ctx context.Context, sessionID, status string) e
 }
 
 // streamScreen captures the desktop and writes encoded frames into the video
-// track. If ffmpeg is unavailable the connection stays up without video (the
-// input DataChannel still works), so video failure is non-fatal.
+// track, relaunching ffmpeg whenever it stops on its own so the picture comes
+// back by itself. ffmpeg stops when the desktop it is grabbing goes away for a
+// moment — most often the UAC "secure desktop" Windows switches to for an
+// elevation prompt, where gdigrab cannot read the screen and ffmpeg exits.
+// Without the relaunch the picture would stay frozen for the rest of the
+// session even after the prompt is answered, while mouse and keyboard keep
+// working. If ffmpeg cannot be launched at all (a missing or damaged binary)
+// the connection stays up without video, so video failure is non-fatal.
 func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track *pion.TrackLocalStaticSample) {
-	screen := capture.NewScreenCapture(c.capture)
-	frames, err := screen.Start(ctx)
-	if err != nil {
-		log.Printf("[session] %s: screen sharing could not start: the ffmpeg folder that came with the program is missing or damaged. The connection stays up without a picture.", sessionID)
-		diag.Printf("[session] %s: capture: %v", sessionID, err)
-		return
-	}
-	log.Printf("[session] %s: screen streaming started", sessionID)
-
 	go func() {
-		for frame := range frames {
-			// Pion advances the RTP clock by Duration AFTER writing a sample, so
-			// first move the clock forward by the real capture gap (an empty
-			// sample only skips ticks, it sends nothing — pion/rtp's Packetize
-			// calls SkipSamples on an empty payload; verified against v1.10.5)
-			// and then write the frame with no further advance. RTP timestamps
-			// then match the actual capture times instead of a nominal 30 fps.
-			if frame.Elapsed > 0 {
-				if err := track.WriteSample(media.Sample{Duration: frame.Elapsed}); err != nil {
-					if ctx.Err() == nil {
-						diag.Printf("[session] %s: could not advance video clock: %v", sessionID, err)
-					}
+		var (
+			started     bool      // ffmpeg has run at least once this session
+			lastFrameAt time.Time // when the last frame was written, for the gap
+		)
+		for ctx.Err() == nil {
+			// After the first run, send ffmpeg's own logging to the diagnostic
+			// channel: a capture relaunched every second while a UAC prompt is
+			// up must not fill the operator's activity pane with error lines.
+			opts := c.capture
+			opts.Quiet = started
+			screen := capture.NewScreenCapture(opts)
+			frames, err := screen.Start(ctx)
+			if err != nil {
+				if !started {
+					// The very first launch failed: a missing or damaged binary,
+					// which will not fix itself. Say so once and leave the
+					// connection up without a picture.
+					log.Printf("[session] %s: screen sharing could not start: the ffmpeg folder that came with the program is missing or damaged. The connection stays up without a picture.", sessionID)
+					diag.Printf("[session] %s: capture: %v", sessionID, err)
 					return
 				}
-			}
-			if err := track.WriteSample(media.Sample{Data: frame.Data}); err != nil {
-				if ctx.Err() == nil {
-					diag.Printf("[session] %s: could not write video sample: %v", sessionID, err)
+				// A later launch failed — more likely a transient hiccup than a
+				// vanished binary. Back off and try again rather than giving up.
+				diag.Printf("[session] %s: screen capture relaunch failed: %v", sessionID, err)
+				if !sleepCtx(ctx, captureRetryBackoff) {
+					return
 				}
+				continue
+			}
+			if started {
+				diag.Printf("[session] %s: screen capture restarted", sessionID)
+			} else {
+				log.Printf("[session] %s: screen streaming started", sessionID)
+			}
+			started = true
+
+			last, writeFailed := c.pumpFrames(ctx, sessionID, track, frames, lastFrameAt)
+			lastFrameAt = last
+			if ctx.Err() != nil || writeFailed {
+				// The session is ending, or the track can no longer be written
+				// (the viewer is gone): there is nothing to restart for.
+				return
+			}
+			// ffmpeg exited while the session is still up — typically the secure
+			// desktop. Pause briefly, then capture again.
+			diag.Printf("[session] %s: screen capture stopped, restarting", sessionID)
+			if !sleepCtx(ctx, captureRetryBackoff) {
 				return
 			}
 		}
 	}()
+}
+
+// pumpFrames copies encoded frames onto the track until the capture stops or the
+// track can no longer be written. It returns when the frame channel closes
+// (ffmpeg exited) or a write fails, giving back the time the last frame was
+// written — so a later capture can credit the gap it was down — and whether it
+// stopped because of a write failure rather than the capture ending.
+func (c *Coordinator) pumpFrames(ctx context.Context, sessionID string, track *pion.TrackLocalStaticSample, frames <-chan capture.Frame, lastFrameAt time.Time) (time.Time, bool) {
+	first := true
+	for frame := range frames {
+		elapsed := frame.Elapsed
+		if first {
+			first = false
+			// A fresh ffmpeg opens on a keyframe with a zero pts gap. If this is
+			// a restart (we have written a frame before), advance the media clock
+			// by how long capture was actually down — capped, like any single
+			// gap — so RTP timestamps stay equal to real time and the viewer's
+			// jitter buffer does not treat the resumed frame as instantaneous.
+			if !lastFrameAt.IsZero() {
+				elapsed = min(time.Since(lastFrameAt), captureGapCap)
+			}
+		}
+		// Pion advances the RTP clock by Duration AFTER writing a sample, so
+		// first move the clock forward by the real capture gap (an empty sample
+		// only skips ticks, it sends nothing — pion/rtp's Packetize calls
+		// SkipSamples on an empty payload; verified against v1.10.5) and then
+		// write the frame with no further advance. RTP timestamps then match the
+		// actual capture times instead of a nominal 30 fps.
+		if elapsed > 0 {
+			if err := track.WriteSample(media.Sample{Duration: elapsed}); err != nil {
+				if ctx.Err() == nil {
+					diag.Printf("[session] %s: could not advance video clock: %v", sessionID, err)
+				}
+				return lastFrameAt, true
+			}
+		}
+		if err := track.WriteSample(media.Sample{Data: frame.Data}); err != nil {
+			if ctx.Err() == nil {
+				diag.Printf("[session] %s: could not write video sample: %v", sessionID, err)
+			}
+			return lastFrameAt, true
+		}
+		lastFrameAt = time.Now()
+	}
+	return lastFrameAt, false
+}
+
+// sleepCtx waits for d or until ctx ends, reporting true when the full wait
+// elapsed and false when the context ended first.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
