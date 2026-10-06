@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -8,7 +9,44 @@ import (
 	"testing"
 
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/licenses"
 )
+
+func TestLicensesRequested(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{"--licenses"}, true},
+		{[]string{"-licenses"}, true},
+		{[]string{"/LICENSES"}, true},
+		{[]string{"something", "--Licenses"}, true},
+		{[]string{"--license"}, false},
+		{[]string{"licenses"}, false},
+	} {
+		if got := licensesRequested(c.args); got != c.want {
+			t.Errorf("licensesRequested(%q) = %v, want %v", c.args, got, c.want)
+		}
+	}
+}
+
+// TestPrintLicenses: the texts the build carries come out whole; a developer
+// build without them says so and fails, never prints an empty success.
+func TestPrintLicenses(t *testing.T) {
+	var out bytes.Buffer
+	code := printLicenses(&out)
+	text, ok := licenses.Text()
+	if ok {
+		if code != 0 || out.String() != text {
+			t.Fatalf("exit %d, %d bytes; want 0 and the %d bytes of the build's texts", code, out.Len(), len(text))
+		}
+		return
+	}
+	if code != 1 || !strings.Contains(out.String(), "developer build") {
+		t.Fatalf("a build without texts: exit %d, %q; want 1 and an explanation", code, out.String())
+	}
+}
 
 func TestFormatPairingCode(t *testing.T) {
 	if got := formatPairingCode("123456"); got != "123 - 456" {

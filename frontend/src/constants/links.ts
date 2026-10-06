@@ -12,8 +12,9 @@ export const RELEASES_URL = `${GITHUB_URL}/releases`
 export const LICENSE_URL = `${GITHUB_URL}/blob/main/LICENSE`
 export const ARCHITECTURE_DOC_URL = `${GITHUB_URL}/blob/main/docs/ARCHITECTURE.md`
 
-// The Windows host agent bundle (exe + ffmpeg) attached to every release.
-export const HOST_ASSET_NAME = 'freedesk-windows-x64.zip'
+// The Windows host program attached to every release: one file, with the
+// licenses of the code in it built in.
+export const HOST_ASSET_NAME = 'freedesk.exe'
 
 // GitHub redirects this to that asset of the most recent full release.
 export const LATEST_HOST_ASSET_URL = `${RELEASES_URL}/latest/download/${HOST_ASSET_NAME}`

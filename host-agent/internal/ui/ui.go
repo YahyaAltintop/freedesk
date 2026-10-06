@@ -22,6 +22,10 @@ type Options struct {
 	// cancelling the agent's context is the intended use. The window stays
 	// open, saying "Stopping…", until Done is called.
 	OnClose func()
+	// Licenses is what the Licenses button shows: FreeDesk's license and those
+	// of the code built into the exe, with Windows line endings. Empty means
+	// no button (a developer build without generated license texts).
+	Licenses string
 }
 
 // Window is the status window. Every method except Loop may be called from

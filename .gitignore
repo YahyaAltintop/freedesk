@@ -52,6 +52,13 @@ go.work.sum
 # Built artifacts
 host-agent/bin/
 host-agent/dist/
+# The license texts cmd/notices generates for embedding into the exe; only
+# the placeholder that keeps the embed pattern valid is in the repository.
+host-agent/internal/licenses/generated/*
+!host-agent/internal/licenses/generated/.gitkeep
+# libvpx source, objects and the installed static library, produced by
+# host-agent/scripts/build-libvpx.sh
+host-agent/third_party/
 
 # ---- Firebase ---------------------------------------------------------------
 .firebase/

@@ -16,9 +16,40 @@ import (
 
 var (
 	procFindWindow      = user32.NewProc("FindWindowW")
+	procFindWindowEx    = user32.NewProc("FindWindowExW")
 	procGetWindowText   = user32.NewProc("GetWindowTextW")
+	procIsWindow        = user32.NewProc("IsWindow")
 	procIsWindowVisible = user32.NewProc("IsWindowVisible")
 )
+
+// windowsOf counts the top-level windows of a class.
+func windowsOf(class string) int {
+	n := 0
+	var after uintptr
+	for {
+		h, _, _ := procFindWindowEx.Call(0, after, uintptr(unsafe.Pointer(utf16(class))), 0)
+		if h == 0 {
+			return n
+		}
+		n++
+		after = h
+	}
+}
+
+// waitWindows waits up to two seconds for exactly n top-level windows of a
+// class, and returns one of them (0 when n is 0).
+func waitWindows(t *testing.T, class string, n int) uintptr {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for windowsOf(class) != n {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d %s windows, want %d", windowsOf(class), class, n)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	h, _, _ := procFindWindow.Call(uintptr(unsafe.Pointer(utf16(class))), 0)
+	return h
+}
 
 func visible(ctl uintptr) bool {
 	r, _, _ := procIsWindowVisible.Call(ctl)
@@ -33,14 +64,18 @@ type harness struct {
 	exit   chan int
 }
 
-func openWindow(t *testing.T) *harness {
+func openWindow(t *testing.T) *harness { return openWindowWith(t, Options{}) }
+
+func openWindowWith(t *testing.T, o Options) *harness {
 	t.Helper()
 	h := &harness{closed: make(chan struct{}), exit: make(chan int, 1)}
+	o.Title = "FreeDesk test"
+	o.OnClose = func() { close(h.closed) }
 	ready := make(chan error, 1)
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-		w, err := Open(Options{Title: "FreeDesk test", OnClose: func() { close(h.closed) }})
+		w, err := Open(o)
 		if err != nil {
 			ready <- err
 			return
@@ -105,6 +140,9 @@ func TestWindowIntegration(t *testing.T) {
 		if visible(h.win.updateBtn) {
 			t.Error("the update button must stay hidden until a release is offered")
 		}
+		if h.win.licensesBtn != 0 {
+			t.Error("a build without license texts must not offer a Licenses button")
+		}
 		h.win.ShowUpdate("9.9.9", "https://github.com/owner/repo/releases/latest")
 		time.Sleep(200 * time.Millisecond)
 		if !visible(h.win.updateBtn) {
@@ -154,6 +192,60 @@ func TestWindowIntegration(t *testing.T) {
 		h.win.Done(0)
 		if code := h.wait(t); code != 0 {
 			t.Errorf("Loop returned %d", code)
+		}
+	})
+
+	t.Run("the licenses window is its own: closing it leaves the agent running", func(t *testing.T) {
+		const text = "FreeDesk test licenses\r\nsecond line\r\n"
+		h := openWindowWith(t, Options{Licenses: text})
+		if h.win.licensesBtn == 0 || !visible(h.win.licensesBtn) {
+			t.Fatal("no Licenses button although there are license texts")
+		}
+		press := func() { procPostMessage.Call(h.win.hwnd, wmCommand, idLicenses, h.win.licensesBtn) }
+
+		press()
+		lw := waitWindows(t, licensesClass, 1)
+		edit, _, _ := procFindWindowEx.Call(lw, 0, uintptr(unsafe.Pointer(utf16("Edit"))), 0)
+		if got := h.text(edit); got != text {
+			t.Errorf("the licenses window shows %q, want %q", got, text)
+		}
+
+		// The regression this guards: the licenses window closing like the
+		// status window would stop the agent.
+		procPostMessage.Call(lw, wmClose, 0, 0)
+		waitWindows(t, licensesClass, 0)
+		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-h.closed:
+			t.Fatal("closing the licenses window asked the agent to stop")
+		default:
+		}
+		if alive, _, _ := procIsWindow.Call(h.win.hwnd); alive == 0 {
+			t.Fatal("closing the licenses window destroyed the status window")
+		}
+
+		// Open it again; a second press only brings it forward. Then the
+		// operator closes the status window: it takes the licenses window
+		// with it and Loop returns cleanly.
+		press()
+		waitWindows(t, licensesClass, 1)
+		press()
+		time.Sleep(100 * time.Millisecond)
+		if n := windowsOf(licensesClass); n != 1 {
+			t.Errorf("%d licenses windows after a second press, want 1", n)
+		}
+		h.postClose()
+		select {
+		case <-h.closed:
+		case <-time.After(2 * time.Second):
+			t.Fatal("OnClose was not called")
+		}
+		h.win.Done(0)
+		if code := h.wait(t); code != 0 {
+			t.Errorf("Loop returned %d", code)
+		}
+		if n := windowsOf(licensesClass); n != 0 {
+			t.Errorf("%d licenses windows outlived the status window", n)
 		}
 	})
 }

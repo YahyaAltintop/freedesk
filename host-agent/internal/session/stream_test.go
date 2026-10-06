@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,7 +13,7 @@ import (
 )
 
 // newVideoTrack makes a real, unbound VP8 track. WriteSample on it is a no-op
-// that returns nil, so pumpFrames can be exercised without ffmpeg or a peer.
+// that returns nil, so pumpFrames can be exercised without a capture or a peer.
 func newVideoTrack(t *testing.T) *pion.TrackLocalStaticSample {
 	t.Helper()
 	track, err := pion.NewTrackLocalStaticSample(
@@ -23,7 +25,7 @@ func newVideoTrack(t *testing.T) *pion.TrackLocalStaticSample {
 }
 
 // TestPumpFramesReportsCaptureEnd checks the case the restart loop depends on:
-// when ffmpeg exits its frame channel closes, and pumpFrames must return with
+// when the capture ends its frame channel closes, and pumpFrames must return with
 // writeFailed=false (so streamScreen restarts) and a non-zero lastFrameAt.
 func TestPumpFramesReportsCaptureEnd(t *testing.T) {
 	c := &Coordinator{}
@@ -50,5 +52,41 @@ func TestSleepCtx(t *testing.T) {
 	cancel()
 	if sleepCtx(ctx, time.Hour) {
 		t.Fatal("a cancelled context must report false without waiting")
+	}
+}
+
+// TestStreamScreenStopsACaptureNobodyReads: once pumpFrames returns — the
+// capture ended, or the track could not be written any more — the capture's
+// context must end at once, before any backoff. A capture left on the
+// session's context would go on grabbing the screen for nobody until the
+// session ends.
+func TestStreamScreenStopsACaptureNobodyReads(t *testing.T) {
+	var calls atomic.Int32
+	first := make(chan context.Context, 1)
+	frames := make(chan capture.Frame)
+	c := &Coordinator{startCapture: func(ctx context.Context, _ capture.Options) (<-chan capture.Frame, error) {
+		if calls.Add(1) == 1 {
+			first <- ctx
+			return frames, nil
+		}
+		return nil, errors.New("no screen in this test")
+	}}
+	ctx := t.Context() // ends after the test, which also ends streamScreen's loop
+	c.streamScreen(ctx, "sess", newVideoTrack(t), capture.NewKeyframeRequest())
+
+	var captureCtx context.Context
+	select {
+	case captureCtx = <-first:
+	case <-time.After(5 * time.Second):
+		t.Fatal("streamScreen did not start a capture")
+	}
+	close(frames) // the capture ends, so pumpFrames returns
+	select {
+	case <-captureCtx.Done():
+	case <-time.After(captureRetryBackoff / 2):
+		t.Fatal("the capture's context was not ended when pumpFrames returned")
+	}
+	if ctx.Err() != nil {
+		t.Fatal("the session's own context must be untouched")
 	}
 }

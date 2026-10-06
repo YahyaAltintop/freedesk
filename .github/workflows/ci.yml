@@ -17,6 +17,11 @@ jobs:
     defaults:
       run:
         working-directory: host-agent
+    env:
+      # The agent links libvpx in through cgo, built with MSYS2's UCRT64 gcc
+      # (scripts/build-libvpx.sh). The runner has another gcc on PATH; the CC
+      # and PATH entries set after the MSYS2 install make sure this one is used.
+      CGO_ENABLED: "1"
     steps:
       # The Windows runner converts text files to CRLF on checkout, and gofmt
       # reports every CRLF file as unformatted. .gitattributes pins Go files
@@ -30,6 +35,30 @@ jobs:
         with:
           go-version-file: host-agent/go.mod
           cache-dependency-path: host-agent/go.sum
+      # The C toolchain. The action installs its own MSYS2 (the installer is
+      # pinned by the action's commit) and updates it, so packages come from
+      # today's database; their versions follow MSYS2. libvpx is pinned by
+      # commit.
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        id: msys2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-nasm
+            make
+            git
+            diffutils
+      - name: Use the UCRT64 gcc for cgo
+        shell: pwsh
+        run: |
+          $bin = Join-Path '${{ steps.msys2.outputs.msys2-location }}' 'ucrt64\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+          Add-Content -Path $env:GITHUB_ENV -Value "CC=$(Join-Path $bin 'gcc.exe')"
+      - name: Build libvpx (VP8 encoder, static)
+        shell: msys2 {0}
+        run: bash scripts/build-libvpx.sh
       - name: gofmt
         shell: bash
         run: |
@@ -46,6 +75,21 @@ jobs:
       # host machine, so a fixed-but-unshipped CVE is a shipped CVE.
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      # The release-style exe must need no DLL Windows does not ship, must
+      # have the video encoder and must carry its license texts; a change that
+      # breaks any of them fails here, not on a user's machine. As in the
+      # release, the texts are written first, because the build embeds them;
+      # a new dependency without a license file fails here, not on release.
+      # (The steps above build and test without them, as a developer does.)
+      - name: Check the release exe
+        run: |
+          go run ./cmd/notices -o internal/licenses/generated/LICENSES.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force ../ci-dist | Out-Null
+          go build -trimpath -ldflags "-s -w -H=windowsgui" -o ../ci-dist/freedesk.exe ./cmd/host
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          go run ./cmd/importcheck -licenses internal/licenses/generated/LICENSES.txt ../ci-dist/freedesk.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
   frontend:
     name: Viewer (Vue)

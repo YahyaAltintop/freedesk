@@ -7,6 +7,10 @@
 *.go      text eol=lf
 go.mod    text eol=lf
 go.sum    text eol=lf
+# Shell scripts run under MSYS2/Linux bash, which rejects CRLF.
+*.sh      text eol=lf
+*.c       text
+*.h       text
 *.ts      text
 *.vue     text
 *.js      text

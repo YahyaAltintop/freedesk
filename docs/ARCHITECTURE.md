@@ -20,14 +20,14 @@ The viewer application that runs in the browser (deployed on Firebase Hosting). 
 - Cleaning up after itself: everything it writes is armed with `onDisconnect().remove()`.
 
 ### 1.2 Go Host Agent (Host)
-The agent that runs on the remotely controlled Windows machine (`freedesk.exe` + `ffmpeg\ffmpeg.exe`).
+The agent that runs on the remotely controlled Windows machine: `freedesk.exe`, one file with the video encoder built in.
 - Authenticates **anonymously** to Firebase (Identity Toolkit REST). **Every launch is a new identity and a new 6-digit code; nothing is stored on disk.** On shutdown it removes its host record and deletes its own anonymous account.
 - Publishes itself as `/hosts/{code}` and refreshes `lastSeen` every 30 s (server timestamp).
 - Shows the code in a small window and serves it to the local web UI on `127.0.0.1` (`/identity`, allowed web origins only).
 - Streams its inbox (`/inbox/{uid}`) over Server-Sent Events; **no polling, zero reads while idle.**
 - Every request is approved in a native **Yes/No window** (or `y` on the console); no answer within 45 s = rejected.
 - Asks `api.github.com` once at start-up, in the background, whether a newer release exists, and shows an **Update to …** button if so (`RC_UPDATE_CHECK=off` disables it). The web page does the same comparison for the agent running on the viewer's own computer, next to its code. It only points at the release page; it never downloads or replaces anything, and a failed or rate-limited answer is silent.
-- On approval, establishes the WebRTC connection (as the offerer), captures the screen with ffmpeg and streams it as a **video track**.
+- On approval, establishes the WebRTC connection (as the offerer), captures the primary monitor and streams it as a **video track** (VP8, encoded in-process; see 5.2).
 - Applies input events arriving over the **`input` DataChannel** via the Windows API; releases every held key/button when the viewer goes away.
 - Announces what it can do in a `hello` greeting the moment that channel opens, so the viewer enables features from the advertised capabilities rather than from a version number.
 - Receives files on the **`file` DataChannel** into a fixed `Downloads\FreeDesk` folder — one Yes/No window per batch, never overwriting, and tagged with the Mark of the Web once complete. Sends files back only from a native picker the operator drives.
@@ -183,7 +183,7 @@ The Go Host Agent does not use the Firebase **Admin SDK**. Instead, an **anonymo
 | 6 | One SSE stream per session on the host, demultiplexed | Negotiation and liveness from a single connection (Spark plan caps connections at 100) |
 | 7 | Mouse coordinates normalized to `[0,1]` | Resolution independence; scales to `0..65535` with Windows `MOUSEEVENTF_ABSOLUTE` |
 | 8 | Held keys/buttons tracked on both sides, released on blur/disconnect | A key pressed just before a tab switch must not stay pressed on the host |
-| 9 | Frame timing from IVF pts (`-fps_mode passthrough`) | RTP timestamps follow real capture times; no drift when capture falls below 30 fps |
+| 9 | Frame timing from real capture times (`Frame.Elapsed`) | RTP timestamps follow real capture times; no drift when capture falls below 30 fps |
 | 10 | RTCP is read from every sender | Pion's NACK/RR interceptors only work while somebody reads |
 | 11 | ICE: public STUN only (no TURN) | No server to run; the config is left open to TURN (see 5.1) |
 | 12 | Approval in a native Yes/No window | No console interaction; silence still means no |
@@ -208,9 +208,19 @@ This project uses **public STUN only**:
 - **One UDP port on the host.** The agent opens a single UDP socket (`RC_UDP_PORT`, default 47801) first thing at start-up and every session's ICE traffic goes through it (pion's UDP mux). The point is timing as much as tidiness: Windows asks whether to allow a program through its firewall the moment it first listens, and with a socket per session that question appeared behind the first connection's consent prompt, where it was easy to miss — and, unanswered, kept every packet from the viewer out. At start-up the operator is looking at the window. The agent also checks, in the background, whether the firewall holds a block rule for it and says so in plain words. Server-reflexive (STUN) candidates still use their own sockets; the allow rule Windows writes covers the whole program.
 
 ### 5.2 Desktop capture & video encoding
-ffmpeg (`gdigrab` → `libvpx` VP8 → IVF over a pipe) keeps the agent free of CGO and native codecs; only `ffmpeg.exe` is needed at runtime and it ships in the release zip's `ffmpeg\` folder. `-fps_mode passthrough` preserves real capture timestamps (ffmpeg ≥ 5.1). The encoder is held to a constant 2 Mbit/s with a one-second buffer and keyframes capped at three frames' worth — left to its defaults it spent a six-second buffer on 100 KB keyframes, a periodic stall on anything slower than a LAN — and the frame is never wider than 1920 px (`RC_MAX_WIDTH`), because gdigrab hands over the whole desktop, every monitor of it. Faster capture (`ddagrab`) and hardware H.264 are possible later without touching the WebRTC side.
+Everything happens inside `freedesk.exe`; no other program is started.
 
-Two things overlap the operator's decision rather than follow it: the peer connection is built and gathers its ICE candidates while the Yes/No window is up (nothing is published before the yes, and a no closes it), and ffmpeg is run once, doing nothing, at start-up so the first session does not pay for paging a 100 MB executable in and for Defender's first look at it.
+- **Capture** (`internal/capture`): the primary monitor — the one input is mapped to — through **DXGI desktop duplication**, which hands over a new desktop image only when something changed. Where duplication is not available (some virtual machines and remote sessions, a rotated monitor, another program already duplicating the screen) the agent falls back to a **GDI copy** (BitBlt). The mouse pointer is not part of either image and is drawn in with `DrawIconEx`, an animated one (the busy spinner) frame by frame on the clock. The capture thread works in physical pixels whatever the scale factor.
+- **Encoding** (`internal/vpx`): **libvpx**, VP8 only, built from a pinned commit by `scripts/build-libvpx.sh` and linked in statically through cgo (`-static`, so libgcc and winpthreads are inside the exe too; `cmd/importcheck` proves no other DLL is needed). The BGRA → I420 conversion (BT.601, limited range; luma within ±1 of ffmpeg's swscale) and the area-averaging downscale are plain C — no C++, so no C++ runtime.
+- **Rate control**: the configuration ffmpeg derived from the arguments the agent used to give it — constant bitrate, one-second buffer, keyframes capped at three frames' worth and forced every two seconds, `cpu-used 5`, realtime, error resilient — at **3 Mbit/s**, on **four threads** where ffmpeg took one per CPU (VP8 encodes macroblock rows that wait on the row above, so beyond a few threads the rest mostly wait; four cost about a third less CPU than twenty for the same picture). Fed identical frames, the two produce the same keyframes and sizes within a fraction of a percent (`TestEncoderMatchesFFmpeg`). Left to its defaults libvpx spent a six-second buffer on 100 KB keyframes, a periodic stall on anything slower than a LAN. The frame is never wider than 1920 px (`RC_MAX_WIDTH`).
+- **Two goroutines**: one grabs and converts on every tick of a 30 fps clock (a frame with nothing new is not converted again), the other encodes. While the encoder is busy a newer tick replaces the one waiting, so a slow moment costs frames, never latency. While nothing on the screen changes, the last picture is encoded again only five times a second, so a still screen costs next to nothing; the encoder is fed a nominal 30 fps all the same (a repeat stands for one tick), so a quiet spell does not inflate the budget of the frames that end it. Real time reaches the viewer separately, in each frame's RTP timestamp.
+- **The secure desktop** (a UAC prompt, the lock screen) cannot be read by a user program. The capture notices within a quarter of a second (it asks four times a second, not on every tick), pauses — no frames, next to no CPU — checks twice a second, and resumes with a new encoder, which opens on a keyframe.
+- **A failure inside the capture** ends only that capture: an error it cannot recover from, or a crash of one of its goroutines, which is logged (`RC_DIAG`) rather than fatal. The session starts a new capture a second later. A capture whose frames nobody reads any more (the track failed) is stopped at once rather than left grabbing the screen until the session ends.
+- **Keyframe on demand.** When the viewer's browser loses more of the picture than retransmission can repair it sends an RTCP **Picture Loss Indication**; the host reads it off the video sender (`internal/webrtc`) and asks the encoder for a keyframe, so the viewer recovers in a fraction of a second instead of waiting for the next periodic keyframe (every sixty frames: two seconds of motion, up to twelve on a still screen, which is where this helps most). Forced keyframes are rate-limited to at most one every half-second (a keyframe costs about fifteen delta frames, so a burst of reports on a lossy link must not become a storm of them); a request that arrives inside that window waits rather than being dropped. No viewer-side code is needed — Chrome sends PLI on its own, and the host's offer advertises the feedback (`a=rtcp-fb … nack pli`), which a test asserts.
+
+Measured when this replaced ffmpeg (2026-10-06, i7-12700H, 1080p, both at the then 2 Mbit/s target, alternating runs on the same screen): the same 30 fps; CPU equal to or below ffmpeg's (a moving 1280×720 area: 1.28–1.60 cores against 1.40–1.88 with duplication, 1.02–1.31 against 1.17–1.23 on the GDI fallback); the release zip down from 62 MB to about 5 MB. ffmpeg, fed gdigrab's timestamps, overshot its 2 Mbit/s target to about 3.5 Mbit/s whenever the screen moved; the in-process encoder holds its target, which was then raised to 3 Mbit/s to keep most of that sharpness in motion (same scene at 3 Mbit/s: 30 fps, 2.5 Mbit/s used, 0.8 cores on a quieter machine).
+
+The peer connection is built and gathers its ICE candidates while the Yes/No window is up (nothing is published before the yes, and a no closes it), so it overlaps the operator's decision rather than following it.
 
 ---
 
@@ -227,4 +237,5 @@ Two things overlap the operator's decision rather than follow it: the peer conne
 | Firebase Web SDK | 12+ (modular) |
 | Go | 1.26+ (the toolchain line in go.mod pins the exact patch release the agent is built with) |
 | Pion WebRTC | v4 |
-| ffmpeg | 5.1+ (gdigrab, libvpx) |
+| libvpx | 1.17.0 (pinned commit, VP8 encoder only, static) |
+| C toolchain | MSYS2 UCRT64 gcc + nasm (for cgo and libvpx) |

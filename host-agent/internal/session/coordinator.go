@@ -35,15 +35,15 @@ const (
 	snapshotTimeout = 5 * time.Second
 	cleanupTimeout  = 10 * time.Second
 
-	// captureRetryBackoff is how long streamScreen waits before relaunching
-	// ffmpeg after it stops on its own. ffmpeg most often stops because Windows
-	// switched to the UAC "secure desktop" for an elevation prompt, which
-	// gdigrab cannot read; the pause keeps a prompt that lingers from respawning
-	// a 100 MB process many times a second.
+	// captureRetryBackoff is how long streamScreen waits before starting the
+	// capture again after it stopped on its own. The capture rides out the
+	// secure desktop (a UAC prompt, the lock screen) by itself; it stops only
+	// on a failure it could not recover from, and the pause keeps one that
+	// repeats from being retried many times a second.
 	captureRetryBackoff = 1 * time.Second
 	// captureGapCap bounds the media-clock jump credited to a capture restart,
-	// matching the per-frame cap the IVF reader already applies, so a long time
-	// on the secure desktop cannot lurch the viewer's clock by minutes.
+	// matching the per-frame cap the capture already applies, so a long
+	// outage cannot lurch the viewer's clock by minutes.
 	captureGapCap = 5 * time.Second
 )
 
@@ -203,6 +203,9 @@ type Coordinator struct {
 	// newClipboard makes the session's clipboard sync; a test replaces it to
 	// watch the worker being stopped.
 	newClipboard func(send func(string)) (clipboardSync, error)
+	// startCapture starts a session's screen capture; a test replaces it to
+	// stream without a screen.
+	startCapture func(ctx context.Context, opts capture.Options) (<-chan capture.Frame, error)
 	// version is announced to the viewer in the greeting, so it can explain
 	// what an old agent is missing instead of just disabling a button.
 	version string
@@ -253,6 +256,9 @@ func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, cap
 				return nil, err
 			}
 			return sync, nil
+		},
+		startCapture: func(ctx context.Context, opts capture.Options) (<-chan capture.Frame, error) {
+			return capture.NewScreenCapture(opts).Start(ctx)
 		},
 	}
 }
@@ -395,6 +401,7 @@ func (c *Coordinator) Run(ctx context.Context, req Request, approver Approver) {
 type live struct {
 	peer      *webrtc.Peer
 	track     *pion.TrackLocalStaticSample
+	keyframe  *capture.KeyframeRequest // the viewer's "send a keyframe" signal
 	input     *input.Handler
 	transfers *transfer.Session
 	// clip is set only once the operator has approved: what is on their
@@ -428,7 +435,7 @@ func (s *live) release() {
 // prepare builds the session's state and its peer connection, which starts
 // gathering ICE candidates at once. Nothing here talks to the viewer.
 func (c *Coordinator) prepare(ctx context.Context, req Request, approver Approver) (*live, error) {
-	s := &live{closed: make(chan struct{})}
+	s := &live{closed: make(chan struct{}), keyframe: capture.NewKeyframeRequest()}
 
 	// One input handler per session: it tracks what the viewer holds down so
 	// nothing stays pressed on this machine once the viewer is gone.
@@ -502,6 +509,9 @@ func (c *Coordinator) prepare(ctx context.Context, req Request, approver Approve
 				s.markClosed()
 			}
 		},
+		// The viewer reporting a lost picture asks the encoder for a keyframe;
+		// the capture rate-limits how often it obliges.
+		OnPLI: s.keyframe.Request,
 	}
 
 	track, err := webrtc.NewVideoTrack()
@@ -571,7 +581,7 @@ func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTra
 	log.Printf("[session] %s: CONNECTED", req.ID)
 	_ = c.setStatus(ctx, req.ID, statusConnected)
 
-	c.streamScreen(ctx, req.ID, s.track)
+	c.streamScreen(ctx, req.ID, s.track, s.keyframe)
 
 	select {
 	case <-s.closed:
@@ -634,40 +644,44 @@ func (c *Coordinator) setStatus(ctx context.Context, sessionID, status string) e
 }
 
 // streamScreen captures the desktop and writes encoded frames into the video
-// track, relaunching ffmpeg whenever it stops on its own so the picture comes
-// back by itself. ffmpeg stops when the desktop it is grabbing goes away for a
-// moment — most often the UAC "secure desktop" Windows switches to for an
-// elevation prompt, where gdigrab cannot read the screen and ffmpeg exits.
-// Without the relaunch the picture would stay frozen for the rest of the
-// session even after the prompt is answered, while mouse and keyboard keep
-// working. If ffmpeg cannot be launched at all (a missing or damaged binary)
-// the connection stays up without video, so video failure is non-fatal.
-func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track *pion.TrackLocalStaticSample) {
+// track. The capture handles the desktop going away for a while by itself —
+// the UAC "secure desktop" of an elevation prompt, the lock screen — by
+// pausing and resuming on a keyframe. Should it still stop while the session
+// is up (a failure it could not recover from, or a crash inside it, which the
+// capture turns into its own end), it is started again, so the picture does
+// not stay frozen for the rest of the session while mouse and keyboard keep
+// working. If it cannot start at all (a build without the encoder, a machine
+// whose screen cannot be read) the connection stays up without video, so
+// video failure is non-fatal.
+func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track *pion.TrackLocalStaticSample, keyframe *capture.KeyframeRequest) {
+	// The viewer's keyframe signal is the session's; every capture this loop
+	// starts shares it, so a request outlives a capture restart.
+	opts := c.capture
+	opts.Keyframe = keyframe
 	go func() {
 		var (
-			started     bool      // ffmpeg has run at least once this session
+			started     bool      // the capture has run at least once this session
 			lastFrameAt time.Time // when the last frame was written, for the gap
 		)
 		for ctx.Err() == nil {
-			// After the first run, send ffmpeg's own logging to the diagnostic
-			// channel: a capture relaunched every second while a UAC prompt is
-			// up must not fill the operator's activity pane with error lines.
-			opts := c.capture
-			opts.Quiet = started
-			screen := capture.NewScreenCapture(opts)
-			frames, err := screen.Start(ctx)
+			// Each capture has its own context, ended the moment nothing
+			// reads its frames any more. On the session's context alone, a
+			// capture whose track could no longer be written would go on
+			// grabbing and converting the screen until the session ends.
+			captureCtx, stop := context.WithCancel(ctx)
+			frames, err := c.startCapture(captureCtx, opts)
 			if err != nil {
+				stop()
 				if !started {
-					// The very first launch failed: a missing or damaged binary,
-					// which will not fix itself. Say so once and leave the
-					// connection up without a picture.
-					log.Printf("[session] %s: screen sharing could not start: the ffmpeg folder that came with the program is missing or damaged. The connection stays up without a picture.", sessionID)
+					// The very first start failed, which will not fix itself.
+					// Say so once and leave the connection up without a picture.
+					log.Printf("[session] %s: screen sharing could not start. The connection stays up without a picture.", sessionID)
 					diag.Printf("[session] %s: capture: %v", sessionID, err)
 					return
 				}
-				// A later launch failed — more likely a transient hiccup than a
-				// vanished binary. Back off and try again rather than giving up.
-				diag.Printf("[session] %s: screen capture relaunch failed: %v", sessionID, err)
+				// A later start failed — more likely a passing hiccup. Back off
+				// and try again rather than giving up.
+				diag.Printf("[session] %s: screen capture restart failed: %v", sessionID, err)
 				if !sleepCtx(ctx, captureRetryBackoff) {
 					return
 				}
@@ -681,14 +695,15 @@ func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track 
 			started = true
 
 			last, writeFailed := c.pumpFrames(ctx, sessionID, track, frames, lastFrameAt)
+			stop()
 			lastFrameAt = last
 			if ctx.Err() != nil || writeFailed {
 				// The session is ending, or the track can no longer be written
 				// (the viewer is gone): there is nothing to restart for.
 				return
 			}
-			// ffmpeg exited while the session is still up — typically the secure
-			// desktop. Pause briefly, then capture again.
+			// The capture stopped while the session is still up. Pause
+			// briefly, then capture again.
 			diag.Printf("[session] %s: screen capture stopped, restarting", sessionID)
 			if !sleepCtx(ctx, captureRetryBackoff) {
 				return
@@ -699,7 +714,7 @@ func (c *Coordinator) streamScreen(ctx context.Context, sessionID string, track 
 
 // pumpFrames copies encoded frames onto the track until the capture stops or the
 // track can no longer be written. It returns when the frame channel closes
-// (ffmpeg exited) or a write fails, giving back the time the last frame was
+// (the capture ended) or a write fails, giving back the time the last frame was
 // written — so a later capture can credit the gap it was down — and whether it
 // stopped because of a write failure rather than the capture ending.
 func (c *Coordinator) pumpFrames(ctx context.Context, sessionID string, track *pion.TrackLocalStaticSample, frames <-chan capture.Frame, lastFrameAt time.Time) (time.Time, bool) {
@@ -708,7 +723,7 @@ func (c *Coordinator) pumpFrames(ctx context.Context, sessionID string, track *p
 		elapsed := frame.Elapsed
 		if first {
 			first = false
-			// A fresh ffmpeg opens on a keyframe with a zero pts gap. If this is
+			// A fresh capture opens on a keyframe with a zero gap. If this is
 			// a restart (we have written a frame before), advance the media clock
 			// by how long capture was actually down — capped, like any single
 			// gap — so RTP timestamps stay equal to real time and the viewer's

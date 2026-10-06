@@ -4,7 +4,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import { RELEASES_URL } from '@/constants/links'
 import { useLatestRelease } from '@/services/releases'
 
-// Links to the Windows host agent zip once the GitHub release lookup has
+// Links to the Windows host program (freedesk.exe) once the GitHub release lookup has
 // confirmed one (with version and size). Before that, when the lookup fails
 // or when no release exists, it links to the Releases page, which never 404s.
 const props = withDefaults(defineProps<{ compact?: boolean; variant?: 'primary' | 'ghost' }>(), {
@@ -33,13 +33,13 @@ const details = computed(() => {
     if (current.release.sizeBytes) {
       parts.push(formatSize(current.release.sizeBytes))
     }
-    parts.push('zip · no installer')
+    parts.push('one file · no installer')
     return parts.join(' · ')
   }
   if (current?.state === 'none') {
     return 'no build published yet'
   }
-  return 'windows 10/11 · zip · no installer'
+  return 'windows 10/11 · one file · no installer'
 })
 
 const buttonClass = computed(() => (props.variant === 'ghost' ? 'btn-fd-ghost' : 'btn-fd-primary'))

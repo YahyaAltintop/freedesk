@@ -8,13 +8,19 @@ A small, free remote desktop: see and control another Windows PC from your brows
 
 **On the computer that will be controlled**
 
-1. Press **Download for Windows** on the web page (or take `freedesk-windows-x64.zip` from the [Releases](https://github.com/YahyaAltintop/freedesk/releases) page) and unzip it anywhere.
-2. Run `freedesk.exe`. A small window shows **this computer's code**. If Windows asks about network access, allow it.
+1. Press **Download for Windows** on the web page (or take `freedesk.exe` from the [Releases](https://github.com/YahyaAltintop/freedesk/releases) page). That one file is the whole program: nothing to install or unpack.
+2. Run `freedesk.exe`. A small window shows **this computer's code**. If Windows asks about network access, allow it, with both Private and Public ticked.
 3. Give the code to the person who should connect.
 4. When they connect, a window asks whether to let them see your screen, control the computer, exchange files and share copied text. Click **Yes**. No answer within 45 seconds means no.
 5. Close the FreeDesk window to stop. The code stops working at once; the next start gets a new one.
 
-> **"Unknown publisher"?** The program is not code-signed yet, so Windows warns on first run. Choose **More info → Run anyway**. To check what you downloaded, compare the zip's SHA-256 with the `.sha256` file on the release page, or run `gh attestation verify freedesk-windows-x64.zip --repo YahyaAltintop/freedesk`.
+> **"Unknown publisher"?** The program is not code-signed yet, so the browser may ask whether to keep the download and Windows warns on first run. Keep it, then choose **More info → Run anyway**. To check what you downloaded, compare its SHA-256 with `freedesk.exe.sha256` on the release page, or run `gh attestation verify freedesk.exe --repo YahyaAltintop/freedesk`.
+
+Good to know:
+
+- **Updating.** When the window shows a purple **Update to …** button, download the new `freedesk.exe`, close FreeDesk (a running program cannot be replaced), and put the new file in place of the old one: same folder, same name (a browser may have saved it as `freedesk (1).exe`). Windows then keeps the network permission it gave; anywhere else, it asks again. The program never updates itself.
+- **A new code by itself.** Three connection requests in a row without a yes retire the code and the window shows a new one: whoever you expect needs that one.
+- **Switches.** A text file named `.env` next to `freedesk.exe` can hold `RC_CLIPBOARD=off` (no clipboard sharing) or `RC_UPDATE_CHECK=off` (no question to GitHub at start-up).
 
 **On the computer that connects**
 
@@ -31,7 +37,7 @@ A small, free remote desktop: see and control another Windows PC from your brows
 
 ## How it works
 
-- The **host** (`freedesk.exe`, Go + Pion WebRTC) captures the screen with ffmpeg and applies mouse and keyboard input. The **viewer** is a Vue 3 web page.
+- The **host** (`freedesk.exe`, Go + Pion WebRTC, one self-contained exe) captures the screen with Windows' desktop duplication, encodes it with libvpx built into the exe, and applies mouse and keyboard input. The **viewer** is a Vue 3 web page.
 - **Firebase** (anonymous auth + Realtime Database) is used only to find each other and exchange the WebRTC handshake. **Screen and input never pass through Firebase**; they travel directly between the two computers over an encrypted WebRTC connection.
 - Every launch of the host is a **new anonymous identity and a new code**; nothing is stored on disk and both are deleted when it exits. Session data is deleted when the session ends, even when a browser tab is closed abruptly.
 - Design, data model, security model and known limits: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The wire contract between viewer and host: [docs/PROTOCOL.md](docs/PROTOCOL.md).
@@ -42,12 +48,12 @@ You need a free Firebase project (the Spark plan is enough).
 
 1. **Firebase:** create a project, enable Anonymous sign-in, create a Realtime Database, deploy the rules — [firebase/README.md](firebase/README.md).
 2. **Viewer:** `cd frontend && npm install && cp .env.example .env && npm run dev` — [frontend/README.md](frontend/README.md).
-3. **Host:** `cd host-agent && cp .env.example .env && go run ./cmd/host` — [host-agent/README.md](host-agent/README.md).
-4. **Releases:** pushing to `main` deploys the viewer; pushing a tag `vX.Y.Z` builds the exe and publishes the zip — [docs/RELEASING.md](docs/RELEASING.md).
+3. **Host:** in `host-agent/`, build libvpx once (`bash scripts/build-libvpx.sh` from an MSYS2 UCRT64 shell), then `cp .env.example .env && go run ./cmd/host` with cgo on — [host-agent/README.md](host-agent/README.md).
+4. **Releases:** pushing to `main` deploys the viewer; pushing a tag `vX.Y.Z` builds and publishes `freedesk.exe` — [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Development
 
-Go 1.26+, Node.js 20+, Firebase CLI 13+ (the emulators need JDK 21+), and ffmpeg 5.1+ with `gdigrab` and `libvpx` on the host at runtime.
+Go 1.26+, Node.js 20+, Firebase CLI 13+ (the emulators need JDK 21+), and MSYS2's UCRT64 gcc and nasm for the host's cgo build of libvpx ([host-agent/README.md](host-agent/README.md#build--run)).
 
 ```bash
 cd host-agent && go generate ./cmd/host && go build ./... && go vet ./... && go test ./...
@@ -66,4 +72,4 @@ For computers you **own or are explicitly authorised to control**. Unauthorised 
 
 ## License
 
-MIT — see [LICENSE](LICENSE). ffmpeg ships unmodified under its own license (LGPL build; its notice is `ffmpeg\LICENSE.txt` inside the zip).
+MIT — see [LICENSE](LICENSE). The licenses of the code from other projects built into `freedesk.exe` (libvpx, Go, Pion, the MinGW-w64 runtime) are inside the program: the **Licenses** button in its window shows them, and `freedesk.exe --licenses > licenses.txt` saves them without starting anything.

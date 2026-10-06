@@ -62,10 +62,9 @@ type Config struct {
 	// behind the plain sentences the operator sees — into the status window
 	// (RC_DIAG=on). Off, it only reaches a console when there is one.
 	Diagnostics bool
-	FFmpegPath  string // ffmpeg executable for screen capture (empty = next to the exe, else PATH)
 	// MaxWidth caps the encoded frame's width in pixels (RC_MAX_WIDTH); 0
-	// leaves it to the capture package's default. gdigrab hands over the whole
-	// desktop, every monitor of it, and anything wider is scaled down.
+	// leaves it to the capture package's default. A wider monitor is scaled
+	// down, aspect kept.
 	MaxWidth     int
 	ApprovalMode string // "dialog" (Windows default) or "console"
 	// ClipboardMode is "text" (share clipboard text with the viewer, the
@@ -120,7 +119,6 @@ func Load(envFilePath string) (*Config, error) {
 		DatabaseURL:       firstNonEmpty(os.Getenv("RC_FIREBASE_DB_URL"), BuildDatabaseURL),
 		DatabaseNamespace: os.Getenv("RC_FIREBASE_DB_NAMESPACE"),
 		HostName:          os.Getenv("RC_HOST_NAME"),
-		FFmpegPath:        os.Getenv("RC_FFMPEG_PATH"),
 		ApprovalMode:      strings.ToLower(strings.TrimSpace(os.Getenv("RC_APPROVAL"))),
 		ClipboardMode:     strings.ToLower(strings.TrimSpace(os.Getenv("RC_CLIPBOARD"))),
 		HostingSite:       firstNonEmpty(os.Getenv("RC_HOSTING_SITE"), BuildHostingSite),

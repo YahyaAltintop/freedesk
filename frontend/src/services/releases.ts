@@ -1,6 +1,7 @@
 // Looks up the latest GitHub release so the download button can show the
-// version and size and link straight to the zip. When the API is unreachable
-// or no release exists yet, the button falls back to the Releases page.
+// version and size and link straight to freedesk.exe. When the API is
+// unreachable or no release exists yet, the button falls back to the Releases
+// page.
 
 import { ref, type Ref } from 'vue'
 import { HOST_ASSET_NAME, LATEST_RELEASE_API_URL, RELEASES_URL } from '@/constants/links'
@@ -86,7 +87,8 @@ export async function fetchLatestHostRelease(timeoutMs = 5000): Promise<ReleaseL
       state: 'found',
       release: {
         version: (data.tag_name ?? '').replace(/^v/, ''),
-        // A release without the zip (build failed) still gets a working link.
+        // A release without the exe (a failed build, or one from before the
+        // single-file download) still gets a working link: its page.
         downloadUrl: asset?.browser_download_url ?? data.html_url ?? RELEASES_URL,
         sizeBytes: typeof asset?.size === 'number' ? asset.size : null,
         publishedAt: data.published_at ?? null,

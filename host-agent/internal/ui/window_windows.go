@@ -88,6 +88,7 @@ const (
 	bnClicked        = 0
 	idCopy           = 1001
 	idUpdate         = 1002
+	idLicenses       = 1003
 	idCopiedTimer    = 1
 	swHide           = 0
 	swShowNormal     = 1
@@ -236,6 +237,7 @@ type window struct {
 	siteCtl     uintptr
 	statusCtl   uintptr
 	updateBtn   uintptr // hidden until a newer release is known
+	licensesBtn uintptr // only when there are license texts to show
 	activityCtl uintptr
 
 	mu      sync.Mutex
@@ -355,6 +357,11 @@ func (w *window) create() error {
 	w.updateBtn = w.child(0, "BUTTON", "", bsOwnerDraw|wsTabStop, 130, 196, 200, 30, idUpdate, w.fonts.bold)
 	procShowWindow.Call(w.updateBtn, swHide)
 	w.child(0, "STATIC", "Activity", ssLeft, 20, 234, 200, 18, 0, w.fonts.ui)
+	// The licenses of the code in the exe, which ships alone: kept small, at
+	// the right end of the Activity caption's row, out of the operator's way.
+	if w.opts.Licenses != "" {
+		w.licensesBtn = w.child(0, "BUTTON", "Licenses", bsPushButton|wsTabStop, 360, 229, 80, 23, idLicenses, w.fonts.ui)
+	}
 	w.activityCtl = w.child(wsExClientEdge, "EDIT", "",
 		wsVScroll|wsTabStop|esMultiline|esReadOnly|esAutoVScroll, 20, 254, 420, 160, 0, w.fonts.mono)
 	// A multiline edit stops accepting text at about 30,000 characters unless
@@ -503,6 +510,8 @@ func wndProc(hwnd uintptr, m uint32, wParam, lParam uintptr) uintptr {
 				w.copyCode()
 			case idUpdate:
 				w.openUpdate()
+			case idLicenses:
+				w.showLicenses()
 			}
 		}
 		return 0

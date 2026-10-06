@@ -363,12 +363,11 @@ const features: Feature[] = [
           <template v-else-if="identityChecked">
             <ol class="fd-steps mb-4">
               <li>
-                <span><strong>Download</strong> the zip. Unpack it anywhere.</span>
+                <span><strong>Download</strong> <code>freedesk.exe</code>. One file, nothing to unpack.</span>
               </li>
               <li>
                 <span>
-                  <strong>Run <code>freedesk.exe</code>.</strong> No install. Allow network
-                  access if asked.
+                  <strong>Run it.</strong> No install. Allow network access if asked.
                 </span>
               </li>
               <li>
@@ -393,8 +392,9 @@ const features: Feature[] = [
             <p class="fd-hint mt-2 mb-0">
               <AppIcon name="github" :size="14" /> Open source, MIT licensed.
               <a :href="GITHUB_URL" target="_blank" rel="noopener">Read the code on GitHub</a>.
-              Windows may warn about an unknown publisher: the build isn't signed yet. Choose
-              <strong>More info → Run anyway</strong>, or check the SHA-256 on the release page.
+              The build isn't signed yet, so your browser and Windows may warn. Keep the file,
+              then choose <strong>More info → Run anyway</strong>, or check the SHA-256 on the
+              release page.
             </p>
           </template>
         </div>

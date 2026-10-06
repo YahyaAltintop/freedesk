@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"os"
@@ -31,11 +32,13 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firewall"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/host"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/licenses"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/localapi"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/session"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/transfer"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/ui"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/update"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/vpx"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/webrtc"
 )
 
@@ -83,6 +86,12 @@ func init() {
 }
 
 func main() {
+	// Before anything else, so that reading the licenses never loads the
+	// configuration, signs in or opens a window.
+	if licensesRequested(os.Args[1:]) {
+		os.Exit(printLicenses(os.Stdout))
+	}
+
 	log.SetFlags(log.LstdFlags)
 	cfg, cfgErr := config.Load(envFile)
 
@@ -94,7 +103,8 @@ func main() {
 	// including one whose configuration failed, so the reason can be read.
 	var win ui.Window
 	if cfgErr != nil || cfg.ApprovalMode != consent.ModeConsole {
-		w, err := ui.Open(ui.Options{Title: "FreeDesk", OnClose: cancel})
+		licenseTexts, _ := licenses.Text() // none in a developer build: no button
+		w, err := ui.Open(ui.Options{Title: "FreeDesk", OnClose: cancel, Licenses: licenseTexts})
 		if err != nil {
 			log.Printf("[host-agent] no status window (%v); using the console", err)
 		} else {
@@ -121,6 +131,40 @@ func main() {
 	log.Printf("[host-agent] FreeDesk host agent %s", appVersion)
 	go func() { win.Done(runMain(ctx, cfg, cfgErr, win)) }()
 	os.Exit(win.Loop())
+}
+
+// licensesRequested reports whether the command line asks for the license
+// texts: --licenses, -licenses or /licenses, in any case. Any other argument
+// is ignored, as every argument was before.
+func licensesRequested(args []string) bool {
+	for _, a := range args {
+		switch strings.ToLower(a) {
+		case "--licenses", "-licenses", "/licenses":
+			return true
+		}
+	}
+	return false
+}
+
+// printLicenses writes the license texts the exe carries and returns the exit
+// code. The exe is a windowed program, so a bare command prompt shows nothing;
+// the texts appear when the output goes somewhere:
+//
+//	freedesk.exe --licenses > licenses.txt
+//
+// The status window's Licenses button shows the same texts.
+func printLicenses(out io.Writer) int {
+	text, ok := licenses.Text()
+	if !ok {
+		_, _ = io.WriteString(out, "This build of FreeDesk carries no license texts: it is a developer build "+
+			"(release builds write them with go run ./cmd/notices before building).\r\n"+
+			"FreeDesk itself is under the MIT license; see LICENSE in its source.\r\n")
+		return 1
+	}
+	if _, err := io.WriteString(out, text); err != nil {
+		return 1
+	}
+	return 0
 }
 
 // runMain turns the agent's result into an exit code. A run the operator ended
@@ -226,14 +270,11 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	// --- Incoming requests -----------------------------------------------------
 	approver := consent.New(cfg.ApprovalMode, approvalTimeout)
 	picker := consent.NewFilePicker(cfg.ApprovalMode)
-	captureOpts := capture.Options{Binary: cfg.FFmpegPath, MaxWidth: cfg.MaxWidth}
-	screen := capture.NewScreenCapture(captureOpts)
-	log.Printf("[host-agent] screen capture will use: %s", screen.Binary())
-	// The first run of a freshly downloaded ffmpeg pays for reading a
-	// 100 MB executable off the disk and for Windows Defender looking it over
-	// — seconds, on some machines. Spend them now, in the background, rather
-	// than in front of the first viewer's first frame.
-	go screen.Warm(ctx)
+	captureOpts := capture.Options{MaxWidth: cfg.MaxWidth}
+	if !vpx.Available() {
+		// A developer build without cgo: everything works except the picture.
+		diag.Printf("[host-agent] this build has no video encoder (built with CGO_ENABLED=0); sessions will have no picture")
+	}
 
 	// Say where accepted files would go before anyone sends one — the operator
 	// should not first learn this from a prompt. The folder itself is only

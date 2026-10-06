@@ -1,0 +1,1 @@
+cmd/notices writes LICENSES.txt here before a release build; see ../licenses.go.

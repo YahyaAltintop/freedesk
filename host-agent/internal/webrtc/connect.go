@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/pion/interceptor"
+	"github.com/pion/rtcp"
 	pion "github.com/pion/webrtc/v4"
 
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
@@ -46,6 +47,11 @@ type Hooks struct {
 	OnState func(pion.PeerConnectionState)
 	// OnTrack receives an inbound remote media track (used by the viewer side).
 	OnTrack func(*pion.TrackRemote)
+	// OnPLI fires when the other side reports it has lost the picture (an
+	// RTCP Picture Loss Indication or Full Intra Request on an outbound
+	// track), i.e. it needs a keyframe. The host wires this to the encoder.
+	// It may fire often on a lossy link, so the handler must be cheap.
+	OnPLI func()
 }
 
 // Peer is a peer connection between being built and being negotiated: its
@@ -190,7 +196,7 @@ func Prepare(ctx context.Context, role signaling.Role, cfg Config, hooks Hooks, 
 			p.Close()
 			return nil, err
 		}
-		go drainRTCP(sender)
+		go drainSenderRTCP(sender, hooks.OnPLI)
 	}
 
 	if hooks.OnTrack != nil {
@@ -416,6 +422,30 @@ func drainRTCP(r rtcpReader) {
 	for {
 		if _, _, err := r.Read(buf); err != nil {
 			return
+		}
+	}
+}
+
+// drainSenderRTCP is drainRTCP for an outbound track, additionally watching
+// for the receiver asking for a keyframe: a Picture Loss Indication (sent
+// when loss has outrun what retransmission can repair) or a Full Intra
+// Request. ReadRTCP both pumps the interceptors, as drainRTCP does, and hands
+// back the parsed packets. onPLI may be nil (a track whose loss is not acted
+// on, and the viewer's own senders).
+func drainSenderRTCP(sender *pion.RTPSender, onPLI func()) {
+	for {
+		packets, _, err := sender.ReadRTCP()
+		if err != nil {
+			return
+		}
+		if onPLI == nil {
+			continue
+		}
+		for _, p := range packets {
+			switch p.(type) {
+			case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
+				onPLI()
+			}
 		}
 	}
 }

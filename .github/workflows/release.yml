@@ -1,17 +1,18 @@
 name: Release
 
 # Tag a commit `vX.Y.Z` and push the tag: this builds the Windows host agent
-# with the Firebase project embedded, bundles ffmpeg, and publishes
-# freedesk-windows-x64.zip on the GitHub release together with its SHA-256
-# and a build provenance attestation. What the zip contains, which repository
-# variables and secrets the build reads and how to verify a download:
-# docs/RELEASING.md.
+# with the Firebase project embedded, libvpx linked in and the license texts
+# of everything in it built in, and publishes freedesk.exe on the GitHub
+# release together with its SHA-256 and a build provenance attestation. The
+# exe is the whole download: nothing to unpack. Which repository variables
+# and secrets the build reads and how to verify a download: docs/RELEASING.md.
 #
-# Everything this workflow runs or downloads is pinned to an immutable
-# identity: actions by commit SHA, ffmpeg by a dated build and its SHA-256,
-# go-winres by go.sum, because the exe it produces runs on every host machine
-# with the operator's rights. A floating tag is a way for someone else's
-# compromise to become ours.
+# What this workflow runs or downloads is pinned to an immutable identity:
+# actions by commit SHA, libvpx by commit (scripts/build-libvpx.sh), go-winres
+# by go.sum, because the exe it produces runs on every host machine with the
+# operator's rights. A floating tag is a way for someone else's compromise to
+# become ours. The one exception is the C compiler: MSYS2's packages are
+# signature-checked by pacman, but come in whatever version MSYS2 ships today.
 #
 # The "Check the API key" step refuses to build with a key that rejects a
 # request without a referrer, so a broken exe is never published. The exe is
@@ -28,16 +29,8 @@ permissions:
   attestations: write
 
 env:
-  # Official static ffmpeg build for Windows (LGPL variant: contains gdigrab and
-  # libvpx, which is all the agent needs), from a DATED BtbN auto-build rather
-  # than the rolling "latest" release, whose zip is rebuilt every day under
-  # the same URL. The hash is checked before the archive is opened. To update:
-  # pick a newer autobuild-* release, take the asset's sha256 from the GitHub
-  # release page (or gh release view), and change both lines together.
-  FFMPEG_ZIP_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-19-13-11/ffmpeg-n9.0.2-win64-lgpl-9.0.zip
-  FFMPEG_ZIP_SHA256: f0a85cd3977d987992a90d0e2a1e563d2aeb97078823a42216cdce154d8119cb
   # The asset name; frontend/src/constants/links.ts looks for exactly this.
-  ZIP_NAME: freedesk-windows-x64.zip
+  ASSET_NAME: freedesk.exe
 
 jobs:
   windows:
@@ -106,11 +99,43 @@ jobs:
               "allow both Identity Toolkit API and Token Service API (repository variable FIREBASE_AGENT_API_KEY).")
           }
 
+      # The C toolchain for cgo and libvpx: MSYS2's UCRT64 gcc and nasm. The
+      # action installs its own MSYS2 (the installer is pinned by the action's
+      # commit) and updates it, so packages come from today's database.
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        id: msys2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-nasm
+            make
+            git
+            diffutils
+
+      # cgo must use this gcc, the one that builds libvpx; the runner has
+      # another one on PATH.
+      - name: Use the UCRT64 gcc for cgo
+        shell: pwsh
+        run: |
+          $bin = Join-Path '${{ steps.msys2.outputs.msys2-location }}' 'ucrt64\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+          Add-Content -Path $env:GITHUB_ENV -Value "CC=$(Join-Path $bin 'gcc.exe')"
+
+      # Built from source on every release, never restored from a cache: the
+      # library ends up inside the exe.
+      - name: Build libvpx (VP8 encoder, static)
+        shell: msys2 {0}
+        working-directory: host-agent
+        run: bash scripts/build-libvpx.sh
+
       - name: Build host agent
         shell: pwsh
         working-directory: host-agent
         env:
-          CGO_ENABLED: "0"
+          # cgo with the gcc that built libvpx (CC and PATH set above).
+          CGO_ENABLED: "1"
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
           $numeric = ($version -split "-")[0] # a file version is digits only; the tag may say -rc1
@@ -121,6 +146,12 @@ jobs:
           $site = (Get-Content ../firebase/firebase.json -Raw | ConvertFrom-Json).hosting.site
           if (-not $site) { $site = "" }
           "hosting site: '$site'"
+          # The licenses of FreeDesk and of everything linked into the exe,
+          # gathered from this very build's modules, libvpx and MinGW runtime.
+          # The exe is the whole download, so they are embedded into it
+          # (internal/licenses), which means they are written BEFORE the build.
+          go run ./cmd/notices -o internal/licenses/generated/LICENSES.txt
+          if ($LASTEXITCODE -ne 0) { throw "could not write the license texts" }
           # Icon, version information and application manifest, from
           # cmd/host/winres, stamped with the tag (go-winres is a tool
           # dependency pinned in go.sum).
@@ -144,6 +175,12 @@ jobs:
           if ($info.FileDescription -ne "FreeDesk") { throw "freedesk.exe carries no version resource: the go-winres step did not take" }
           if ($info.ProductVersion -ne $version) { throw "freedesk.exe reports version '$($info.ProductVersion)', expected '$version'" }
           Get-Item ../dist/freedesk.exe | Format-Table Name, Length
+          # No DLL Windows does not ship (libwinpthread, libgcc, libvpx...),
+          # built with cgo, i.e. with the video encoder, and carrying exactly
+          # the license texts written above. Checked before signing, so a
+          # broken exe is never signed or published.
+          go run ./cmd/importcheck -licenses internal/licenses/generated/LICENSES.txt ../dist/freedesk.exe
+          if ($LASTEXITCODE -ne 0) { throw "freedesk.exe failed the import check" }
 
       # Authenticode signature, only once a certificate is configured
       # (docs/RELEASING.md). Until then the exe ships unsigned.
@@ -168,69 +205,39 @@ jobs:
             Remove-Item $pfx -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Fetch ffmpeg
+      # After signing, which rewrites the file: the checksum and the
+      # attestation must describe the bytes that are published. The checksum
+      # file uses the sha256sum -c layout and names the file as it is
+      # published, so a download can be checked without any GitHub tooling.
+      - name: Checksum
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri $env:FFMPEG_ZIP_URL -OutFile ffmpeg.zip
-          # The archive is trusted only once its hash matches the one pinned
-          # above. On a mismatch nothing is extracted and the release fails.
-          $actual = (Get-FileHash -Algorithm SHA256 ffmpeg.zip).Hash.ToLowerInvariant()
-          if ($actual -ne $env:FFMPEG_ZIP_SHA256.ToLowerInvariant()) {
-            throw "ffmpeg.zip SHA-256 mismatch: got $actual, expected $env:FFMPEG_ZIP_SHA256. The pinned build may have been replaced; do not publish."
-          }
-          "ffmpeg.zip SHA-256 verified: $actual"
-          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-src
-          $exe = Get-ChildItem ffmpeg-src -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          if (-not $exe) { throw "ffmpeg.exe not found in the downloaded archive" }
-          # Its own folder in the zip, so the person unpacking sees one program
-          # to run; the agent looks for ffmpeg\ffmpeg.exe next to itself.
-          New-Item -ItemType Directory -Force dist/ffmpeg | Out-Null
-          Copy-Item $exe.FullName dist/ffmpeg/ffmpeg.exe
-          $license = Get-ChildItem ffmpeg-src -Recurse -Filter LICENSE.txt | Select-Object -First 1
-          if ($license) { Copy-Item $license.FullName dist/ffmpeg/LICENSE.txt }
-          # The agent needs the GDI screen grabber and the VP8 encoder.
-          $devices = & dist/ffmpeg/ffmpeg.exe -hide_banner -devices 2>&1 | Out-String
-          $encoders = & dist/ffmpeg/ffmpeg.exe -hide_banner -encoders 2>&1 | Out-String
-          if ($devices -notmatch "gdigrab") { throw "this ffmpeg build has no gdigrab" }
-          if ($encoders -notmatch "libvpx") { throw "this ffmpeg build has no libvpx (VP8)" }
-          & dist/ffmpeg/ffmpeg.exe -version | Select-Object -First 1
+          if ((Split-Path -Leaf dist/freedesk.exe) -ne $env:ASSET_NAME) { throw "the published name must be $env:ASSET_NAME" }
+          $hash = (Get-FileHash -Algorithm SHA256 dist/freedesk.exe).Hash.ToLowerInvariant()
+          Set-Content -Path "dist/$env:ASSET_NAME.sha256" -Value "$hash  $env:ASSET_NAME" -NoNewline -Encoding ascii
+          "$env:ASSET_NAME SHA-256: $hash"
+          Get-ChildItem dist | Format-Table Name, Length
 
-      - name: Assemble zip
-        shell: pwsh
-        run: |
-          Copy-Item LICENSE dist/LICENSE.txt
-          Copy-Item host-agent/release/README.txt dist/README.txt
-          Compress-Archive -Path dist/* -DestinationPath $env:ZIP_NAME
-          # Exactly the layout README.txt describes, nothing more or less.
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $env:ZIP_NAME).Path)
-          try {
-            $entries = @($zip.Entries | ForEach-Object { $_.FullName -replace "\\", "/" } | Sort-Object)
-          } finally {
-            $zip.Dispose()
-          }
-          $expected = @("LICENSE.txt", "README.txt", "ffmpeg/LICENSE.txt", "ffmpeg/ffmpeg.exe", "freedesk.exe") | Sort-Object
-          "zip contents:"; $entries
-          if (($entries -join "`n") -ne ($expected -join "`n")) {
-            throw "unexpected zip layout; expected exactly: $($expected -join ', ')"
-          }
-          # A checksum file next to the zip, in the sha256sum -c layout, so a
-          # download can be checked without any GitHub tooling.
-          $hash = (Get-FileHash -Algorithm SHA256 $env:ZIP_NAME).Hash.ToLowerInvariant()
-          Set-Content -Path "$env:ZIP_NAME.sha256" -Value "$hash  $env:ZIP_NAME" -NoNewline -Encoding ascii
-          "zip SHA-256: $hash"
-
-      # Signed statement that THIS workflow, at THIS commit, produced the zip.
-      # Anyone can check it: gh attestation verify <zip> --repo <owner>/<repo>
+      # Signed statement that THIS workflow, at THIS commit, produced the exe.
+      # Anyone can check it: gh attestation verify freedesk.exe --repo <owner>/<repo>
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
-          subject-path: ${{ env.ZIP_NAME }}
+          subject-path: dist/${{ env.ASSET_NAME }}
 
+      # The two files are uploaded under their own names: freedesk.exe, the
+      # whole program, and its checksum. The text below goes above the
+      # generated notes: how to run the exe, check it and update it.
       - name: Publish release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
-            ${{ env.ZIP_NAME }}
-            ${{ env.ZIP_NAME }}.sha256
+            dist/${{ env.ASSET_NAME }}
+            dist/${{ env.ASSET_NAME }}.sha256
+          body: |
+            **Download `freedesk.exe` and run it.** It is the whole program: nothing to install or unpack. Windows 10/11.
+
+            The program is not code-signed yet, so your browser may ask whether to keep the download, and Windows may say *Unknown publisher* the first time: choose **More info → Run anyway**. To check the file, compare its SHA-256 with `freedesk.exe.sha256` (`Get-FileHash freedesk.exe`), or run `gh attestation verify freedesk.exe --repo ${{ github.repository }}`.
+
+            **Updating:** close FreeDesk, then put the new `freedesk.exe` in place of the old one, same folder and same name (rename it if your browser saved it as `freedesk (1).exe`), so Windows keeps the network permission it gave. The licenses of the code built into the program are in it: the **Licenses** button in its window.
           generate_release_notes: true
