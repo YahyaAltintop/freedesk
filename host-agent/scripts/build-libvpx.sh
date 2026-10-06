@@ -35,13 +35,29 @@ fi
 if [ ! -d "$work/src/.git" ]; then
   rm -rf "$work"
   mkdir -p "$work"
-  git clone --quiet --depth 1 --branch "$LIBVPX_TAG" "$LIBVPX_URL" "$work/src"
+  # A tag checkout is a detached HEAD by design; the commit is checked below.
+  # (git also warns that the annotated tag "is not a commit": harmless.)
+  git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$LIBVPX_TAG" "$LIBVPX_URL" "$work/src"
 fi
 actual=$(git -C "$work/src" rev-parse HEAD)
 if [ "$actual" != "$LIBVPX_COMMIT" ]; then
   echo "libvpx checkout is at $actual, expected $LIBVPX_COMMIT ($LIBVPX_TAG); refusing to build" >&2
   exit 1
 fi
+
+# A compiler named by CC has to be one the makefiles' /bin/sh can run. The
+# workflows (and the PowerShell set-up in host-agent/README.md) export CC for
+# cgo as a Windows path, D:\...\ucrt64\bin\gcc.exe; configure copies it into
+# the makefiles, and /bin/sh reads its backslashes as escapes ("D:a_temp...
+# gcc.exe: command not found"). It is the same compiler cgo uses, which is the
+# point, so it is kept and only its path is converted.
+case "${CC:-}" in
+*\\* | [A-Za-z]:*)
+  CC=$(cygpath -u "$CC")
+  export CC
+  ;;
+esac
+echo "compiler: ${CC:-gcc} ($(${CC:-gcc} -dumpfullversion))"
 
 rm -rf "$work/build" "$out"
 mkdir -p "$work/build"
