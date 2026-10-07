@@ -21,6 +21,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -217,7 +218,10 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 		iceCfg.UDPMux = mux.Mux()
 		log.Printf("[host-agent] connections arrive on UDP port %d", mux.Port())
 	}
-	go watchFirewall(ctx, win)
+	// The product running the firewall instead of Windows, if any: found in
+	// the background, named by a session whose connection fails.
+	var firewallOwner atomic.Value // string
+	go watchFirewall(ctx, win, func(name string) { firewallOwner.Store(name) })
 
 	// --- Newer version? Asked beside the start-up, never in front of it -------
 	if cfg.UpdateCheck {
@@ -285,6 +289,10 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	transfer.SweepPartials(downloads)
 
 	coordinator := session.NewCoordinator(rtdb, manager.UID(), iceCfg, captureOpts, appVersion, picker, cfg.ClipboardMode)
+	coordinator.FirewallOwner(func() string {
+		name, _ := firewallOwner.Load().(string)
+		return name
+	})
 	inbox := session.NewInbox(rtdb, manager.UID())
 
 	// A code that keeps producing windows nobody approves has reached the
@@ -336,7 +344,13 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 // wrong kind of network. The check runs PowerShell, so it takes a few seconds
 // and happens in the background; while the answer is bad it is asked again
 // now and then, so the warning clears once Allow has been clicked.
-func watchFirewall(ctx context.Context, win ui.Window) {
+//
+// When a security product (Norton, Kaspersky, …) has taken the firewall over,
+// Windows' rules are not enforced and Windows never asks, so they are no
+// reason to warn: the program would be told it is blocked on every start
+// while connections work. That product's own rules cannot be read from here.
+// Its name goes to onOwner instead, for a connection that fails to point at.
+func watchFirewall(ctx context.Context, win ui.Window, onOwner func(name string)) {
 	exe, err := os.Executable()
 	if err != nil {
 		return
@@ -348,8 +362,15 @@ func watchFirewall(ctx context.Context, win ui.Window) {
 			diag.Printf("[host-agent] firewall check: %v", err)
 			return
 		}
-		diag.Printf("[host-agent] firewall: enabled=%v blocked=%v allowed=%v elsewhere=%v network=%q",
-			st.Enabled, st.Blocked, st.Allowed, st.Elsewhere, st.Network)
+		diag.Printf("[host-agent] firewall: owner=%q enabled=%v blocked=%v allowed=%v elsewhere=%v network=%q",
+			st.Owner, st.Enabled, st.Blocked, st.Allowed, st.Elsewhere, st.Network)
+		if st.Owner != "" {
+			onOwner(st.Owner)
+			if warned && ctx.Err() == nil {
+				setStatus(win, "Waiting for connection requests…")
+			}
+			return
+		}
 		if st.Reachable() {
 			if warned && ctx.Err() == nil {
 				log.Println("[host-agent] Windows now lets other computers connect to this one.")
@@ -370,7 +391,9 @@ func watchFirewall(ctx context.Context, win ui.Window) {
 	}
 }
 
-func checkFirewall(ctx context.Context, exe string) (firewall.Status, error) {
+// checkFirewall asks the firewall about exe, within firewallCheckTimeout. A
+// variable so a test can answer in its place.
+var checkFirewall = func(ctx context.Context, exe string) (firewall.Status, error) {
 	ctx, cancel := context.WithTimeout(ctx, firewallCheckTimeout)
 	defer cancel()
 	return firewall.Check(ctx, exe)

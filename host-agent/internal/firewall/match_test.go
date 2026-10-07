@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,21 @@ func TestParse(t *testing.T) {
 			out:  "WARNING: something\nenabled|3\nnetwork|Private\nrule|Allow|Any|" + exe + "\nrule|garbage\n",
 			want: Status{Enabled: true, Allowed: true, Network: "Private"},
 		},
+		{
+			name: "another product runs the firewall: Windows still reads as on, with no rule",
+			out:  "owner|Norton 360\nenabled|3\nnetwork|Private,Private\n",
+			want: Status{Owner: "Norton 360", Enabled: true, Network: "Private"},
+		},
+		{
+			name: "Windows runs its own firewall",
+			out:  "owner|\nenabled|3\nnetwork|Private\nrule|Allow|Any|" + exe + "\n",
+			want: Status{Enabled: true, Allowed: true, Network: "Private"},
+		},
+		{
+			name: "a product name is kept whole, trimmed, and the first one wins",
+			out:  "owner|  Acme | Shield\x07  \nowner|Other\nenabled|3\nnetwork|Public\n",
+			want: Status{Owner: "Acme | Shield", Enabled: true, Network: "Public"},
+		},
 	}
 	for _, c := range cases {
 		if got := parse(c.out, exe); !reflect.DeepEqual(got, c.want) {
@@ -89,10 +105,29 @@ func TestParse(t *testing.T) {
 		"allowed":        Status{Enabled: true, Allowed: true}.Reachable(),
 		"blocked":        !Status{Enabled: true, Allowed: true, Blocked: true}.Reachable(),
 		"never answered": !Status{Enabled: true}.Reachable(),
+		// Windows' rules say nothing when another product runs the firewall.
+		"owned elsewhere": Status{Owner: "Norton 360", Enabled: true}.Reachable(),
 	}
 	for name, ok := range reach {
 		if !ok {
 			t.Errorf("Reachable is wrong for %s", name)
+		}
+	}
+}
+
+func TestCleanName(t *testing.T) {
+	long := strings.Repeat("x", maxOwnerLen+10)
+	cases := map[string]string{
+		"Norton 360":          "Norton 360",
+		"  Kaspersky\r\n":     "Kaspersky",
+		"ESET\x00 Security":   "ESET Security",
+		long:                  strings.Repeat("x", maxOwnerLen),
+		"Ağ Güvenliği Duvarı": "Ağ Güvenliği Duvarı", // not ASCII, still one line
+		"":                    "",
+	}
+	for in, want := range cases {
+		if got := cleanName(in); got != want {
+			t.Errorf("cleanName(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

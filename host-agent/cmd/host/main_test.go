@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firewall"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/licenses"
 )
 
@@ -92,6 +95,68 @@ func TestRegistrationDeniedErrorKeepsTheDiagnosisOffTheOperator(t *testing.T) {
 		if !strings.Contains(se.detail, want) {
 			t.Errorf("the diagnosis lacks %q:\n%s", want, se.detail)
 		}
+	}
+}
+
+// fakeFirewall makes checkFirewall answer st for the rest of the test, and
+// captures what the operator would read.
+func fakeFirewall(t *testing.T, st firewall.Status, onCheck func()) *bytes.Buffer {
+	t.Helper()
+	origCheck, origLog := checkFirewall, log.Writer()
+	checkFirewall = func(context.Context, string) (firewall.Status, error) {
+		onCheck()
+		return st, nil
+	}
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() {
+		checkFirewall = origCheck
+		log.SetOutput(origLog)
+	})
+	return &out
+}
+
+// With a security product in charge of the firewall Windows' rules are not
+// enforced, so their absence is no reason to tell the operator they are
+// blocked — on such a machine that warning came up on every start while
+// connections worked. The product's name is passed on instead, at once.
+func TestWatchFirewallStandsDownForAnotherProduct(t *testing.T) {
+	out := fakeFirewall(t, firewall.Status{Owner: "Norton 360", Enabled: true, Network: "Private"}, func() {})
+
+	var owner string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		watchFirewall(t.Context(), nil, func(name string) { owner = name })
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watchFirewall kept checking although another product runs the firewall")
+	}
+	if owner != "Norton 360" {
+		t.Errorf("owner passed on = %q, want Norton 360", owner)
+	}
+	if out.Len() != 0 {
+		t.Errorf("the operator was told something about Windows' firewall:\n%s", out)
+	}
+}
+
+// Windows' own firewall with no rule for the program is still worth a
+// warning, and nobody is named as the firewall's owner.
+func TestWatchFirewallStillWarnsForWindows(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	// Cancelled during the first check: the warning is written, then the
+	// wait for the next check ends at once.
+	out := fakeFirewall(t, firewall.Status{Enabled: true, Network: "Private"}, cancel)
+
+	named := false
+	watchFirewall(ctx, nil, func(string) { named = true })
+	if named {
+		t.Error("an owner was named for Windows' own firewall")
+	}
+	if !strings.Contains(out.String(), "Windows has not yet allowed this program to receive connections") {
+		t.Errorf("no warning for a program Windows' firewall has no rule for:\n%s", out)
 	}
 }
 

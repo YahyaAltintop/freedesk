@@ -1,6 +1,7 @@
 // Package firewall tells whether Windows Defender Firewall is set to block
 // this program — the one thing on the machine itself that leaves an otherwise
-// healthy agent unreachable, and the one the operator can fix.
+// healthy agent unreachable, and the one the operator can fix — or which
+// security product has taken the firewall over, when one has.
 package firewall
 
 import (

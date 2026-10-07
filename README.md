@@ -9,7 +9,7 @@ A small, free remote desktop: see and control another Windows PC from your brows
 **On the computer that will be controlled**
 
 1. Press **Download for Windows** on the web page (or take `freedesk.exe` from the [Releases](https://github.com/YahyaAltintop/freedesk/releases) page). That one file is the whole program: nothing to install or unpack.
-2. Run `freedesk.exe`. A small window shows **this computer's code**. If Windows asks about network access, allow it, with both Private and Public ticked.
+2. Run `freedesk.exe`. A small window shows **this computer's code**. If Windows asks about network access, allow it, with both Private and Public ticked. If your security software asks instead (Norton and the like run the firewall in Windows' place), allow FreeDesk there.
 3. Give the code to the person who should connect.
 4. When they connect, a window asks whether to let them see your screen, control the computer, exchange files and share copied text. Click **Yes**. No answer within 45 seconds means no.
 5. Close the FreeDesk window to stop. The code stops working at once; the next start gets a new one.
@@ -18,7 +18,8 @@ A small, free remote desktop: see and control another Windows PC from your brows
 
 Good to know:
 
-- **Updating.** When the window shows a purple **Update to …** button, download the new `freedesk.exe`, close FreeDesk (a running program cannot be replaced), and put the new file in place of the old one: same folder, same name (a browser may have saved it as `freedesk (1).exe`). Windows then keeps the network permission it gave; anywhere else, it asks again. The program never updates itself.
+- **Updating.** When the window shows a purple **Update to …** button, download the new `freedesk.exe`, close FreeDesk (a running program cannot be replaced), and put the new file in place of the old one: same folder, same name (a browser may have saved it as `freedesk (1).exe`). Network permissions, Windows' or your security software's, belong to that place; anywhere else they start over. The program never updates itself.
+- **The first connection after a download fails?** Security software with its own firewall (Norton and the like) can take a while to decide about a new program it has never seen, and keep connections out until it has. Close FreeDesk, start it again, and give the other person the new code.
 - **A new code by itself.** Three connection requests in a row without a yes retire the code and the window shows a new one: whoever you expect needs that one.
 - **Switches.** A text file named `.env` next to `freedesk.exe` can hold `RC_CLIPBOARD=off` (no clipboard sharing) or `RC_UPDATE_CHECK=off` (no question to GitHub at start-up).
 

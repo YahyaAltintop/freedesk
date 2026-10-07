@@ -212,6 +212,10 @@ type Coordinator struct {
 	// onRefusals is told when maxUnapprovedConnects connection prompts in a
 	// row ended without a yes. Nil means only the log line.
 	onRefusals func(streak int)
+	// firewallOwner names the security product running this computer's
+	// firewall instead of Windows. Nil, or an empty name, means Windows'
+	// own firewall, or not known (yet).
+	firewallOwner func() string
 
 	mu         sync.Mutex
 	active     bool
@@ -222,6 +226,20 @@ type Coordinator struct {
 // connection prompts in a row ended without approval. It is called on its own
 // goroutine with the length of the streak, once per streak.
 func (c *Coordinator) OnRepeatedRefusals(fn func(streak int)) { c.onRefusals = fn }
+
+// FirewallOwner registers where a failed connection learns which security
+// product, if any, has taken the firewall over from Windows, so the advice
+// names it. The answer comes from a background check that takes a few
+// seconds, so it is asked for when needed.
+func (c *Coordinator) FirewallOwner(fn func() string) { c.firewallOwner = fn }
+
+// firewallProduct is FirewallOwner's current answer, or "".
+func (c *Coordinator) firewallProduct() string {
+	if c.firewallOwner == nil {
+		return ""
+	}
+	return c.firewallOwner()
+}
 
 // noteConnectOutcome records how a connection prompt ended and reports whether
 // the run of refusals has reached the limit. Everything that is not a yes
@@ -573,7 +591,11 @@ func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTra
 	}
 
 	if _, err := negotiatePeer(ctx, s.peer, transport); err != nil {
-		explainFailure(req.ID, err, ctx.Err() != nil)
+		if ctx.Err() == nil { // shutting down: nothing to explain
+			for _, line := range failureAdvice(req.ID, err, c.firewallProduct()) {
+				log.Println("[session] " + line)
+			}
+		}
 		diag.Printf("[session] %s: negotiation: %v; candidates %s", req.ID, err, s.peer.Summary())
 		s.release()
 		return
@@ -594,22 +616,30 @@ func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTra
 	log.Printf("[session] %s: connection ended", req.ID)
 }
 
-// explainFailure tells the operator, in words they can act on, why a
-// connection that was approved never came up. The viewer leaving is one
-// story; every other failure is the network's, and on the machine itself the
-// one thing that causes it — and that the operator can change — is the
-// firewall's answer.
-func explainFailure(sessionID string, err error, stopping bool) {
-	switch {
-	case stopping:
-		return
-	case errors.Is(err, signaling.ErrSessionGone):
-		log.Printf("[session] %s: the other side gave up before the connection was made", sessionID)
-	default:
-		log.Printf("[session] %s: the other computer could not reach this one.", sessionID)
-		log.Println("[session]   If Windows asked whether to allow FreeDesk through the firewall, choose Allow (Private and Public).")
-		log.Println("[session]   On some networks (mobile data, shared or corporate Wi-Fi) a direct connection is not possible.")
+// failureAdvice tells the operator, in words they can act on, why a
+// connection that was approved never came up: one entry per log line. The
+// viewer leaving is one story; every other failure is the network's, and on
+// the machine itself the one thing that causes it — and that the operator can
+// change — is the firewall's answer. firewall names the security product
+// running the firewall instead of Windows, or is empty.
+//
+// Such a product decides about a program it has never seen on its own
+// schedule, and an unsigned download can be kept out until it has: the first
+// connection after a download fails, the next start works. Restarting means
+// a new code, so the advice says to use the one the window shows then.
+func failureAdvice(sessionID string, err error, firewall string) []string {
+	if errors.Is(err, signaling.ErrSessionGone) {
+		return []string{sessionID + ": the other side gave up before the connection was made"}
 	}
+	lines := []string{sessionID + ": the other computer could not reach this one."}
+	if firewall != "" {
+		lines = append(lines,
+			"  "+firewall+" runs this computer's firewall instead of Windows. If it asked about FreeDesk, allow it.",
+			"  Just after a download it may still be checking FreeDesk: close FreeDesk, start it again, and connect with the new code it shows.")
+	} else {
+		lines = append(lines, "  If Windows asked whether to allow FreeDesk through the firewall, choose Allow (Private and Public).")
+	}
+	return append(lines, "  On some networks (mobile data, shared or corporate Wi-Fi) a direct connection is not possible.")
 }
 
 // acquire reserves the single session slot.

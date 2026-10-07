@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -61,6 +63,51 @@ func TestFailedNegotiationReleasesTheSession(t *testing.T) {
 	}
 	// Releasing again — Run's own deferred release — must be harmless.
 	s.release()
+}
+
+// A connection that fails while a security product runs the firewall names
+// that product, and only then says to start FreeDesk again — with the new
+// code, since every start has one. Windows never asks in that case, so the
+// advice must not say it did; without a product it stays Windows' question.
+func TestFailureAdviceNamesTheFirewallInCharge(t *testing.T) {
+	unreachable := errors.New("peer-to-peer connection could not be established")
+
+	owned := strings.Join(failureAdvice("s1", unreachable, "Norton 360"), "\n")
+	for _, want := range []string{
+		"s1: the other computer could not reach this one.",
+		"Norton 360 runs this computer's firewall instead of Windows. If it asked about FreeDesk, allow it.",
+		"close FreeDesk, start it again, and connect with the new code it shows",
+		"mobile data",
+	} {
+		if !strings.Contains(owned, want) {
+			t.Errorf("with Norton in charge the advice lacks %q:\n%s", want, owned)
+		}
+	}
+	if strings.Contains(owned, "If Windows asked") {
+		t.Errorf("with Norton in charge Windows never asks, yet the advice says it did:\n%s", owned)
+	}
+
+	windows := strings.Join(failureAdvice("s1", unreachable, ""), "\n")
+	if !strings.Contains(windows, "If Windows asked whether to allow FreeDesk through the firewall, choose Allow (Private and Public).") {
+		t.Errorf("with Windows' own firewall the advice lost its question:\n%s", windows)
+	}
+	if strings.Contains(windows, "start it again") {
+		t.Errorf("a restart is advice for a product that is still deciding, not for Windows:\n%s", windows)
+	}
+
+	gone := failureAdvice("s1", fmt.Errorf("waiting for the answer: %w", signaling.ErrSessionGone), "Norton 360")
+	if len(gone) != 1 || !strings.Contains(gone[0], "s1: the other side gave up") {
+		t.Errorf("a viewer that left is not a firewall story: %q", gone)
+	}
+
+	c := &Coordinator{}
+	if got := c.firewallProduct(); got != "" {
+		t.Errorf("with nothing registered the product is %q, want none", got)
+	}
+	c.FirewallOwner(func() string { return "Norton 360" })
+	if got := c.firewallProduct(); got != "Norton 360" {
+		t.Errorf("firewallProduct = %q, want the registered answer", got)
+	}
 }
 
 // A request that is refused, or withdrawn while the prompt is up, closes the

@@ -4,11 +4,18 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Status is what Windows Defender Firewall would do with a packet for this
 // program arriving from another computer.
 type Status struct {
+	// Owner names the security product that has taken the firewall over from
+	// Windows (Norton 360, Kaspersky, …), or is empty when Windows Defender
+	// Firewall does the job itself. With an owner, Windows' profiles still
+	// read as on but its rules are not enforced and it never asks about a
+	// program, so nothing below says what reaches this one.
+	Owner string
 	// Enabled is whether any firewall profile is on. Off, nothing below
 	// matters and the program is reachable.
 	Enabled bool
@@ -27,12 +34,18 @@ type Status struct {
 	Network string
 }
 
-// Reachable reports whether packets from other computers get through.
+// Reachable reports whether packets from other computers get through. When
+// another product owns the firewall its rules cannot be read from here, and
+// silence is better than a false alarm.
 func (s Status) Reachable() bool {
-	return !s.Enabled || (!s.Blocked && s.Allowed)
+	return s.Owner != "" || !s.Enabled || (!s.Blocked && s.Allowed)
 }
 
-// parse reads the query's output: one "enabled|N" line, one "network|A,B"
+// maxOwnerLen bounds a product name before it reaches the operator's window.
+const maxOwnerLen = 64
+
+// parse reads the query's output: an "owner|Name" line (the name empty when
+// Windows runs its own firewall), one "enabled|N" line, one "network|A,B"
 // line and a "rule|Action|Profiles|Program" line per inbound rule that names
 // a program. Anything else is ignored, so a stray warning on stdout cannot
 // turn into a wrong answer.
@@ -42,6 +55,10 @@ func parse(out, exe string) Status {
 	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Split(strings.TrimSpace(line), "|")
 		switch fields[0] {
+		case "owner":
+			if st.Owner == "" && len(fields) >= 2 {
+				st.Owner = cleanName(strings.Join(fields[1:], "|"))
+			}
 		case "enabled":
 			if len(fields) == 2 {
 				n, _ := strconv.Atoi(strings.TrimSpace(fields[1]))
@@ -83,6 +100,23 @@ func parse(out, exe string) Status {
 		st.Elsewhere = nil
 	}
 	return st
+}
+
+// cleanName makes a product's self-chosen display name fit for one line of
+// the operator's window: no control characters, no surrounding space, and a
+// sane length.
+func cleanName(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > maxOwnerLen {
+		s = strings.TrimSpace(string(r[:maxOwnerLen]))
+	}
+	return s
 }
 
 // covers reports whether a rule's profile list ("Any", "Private, Public",
