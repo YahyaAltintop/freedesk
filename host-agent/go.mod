@@ -2,7 +2,7 @@ module github.com/YahyaAltintop/freedesk/host-agent
 
 go 1.26.0
 
-toolchain go1.26.8
+toolchain go1.26.9
 
 require (
 	github.com/pion/ice/v4 v4.4.2
@@ -36,7 +36,7 @@ require (
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/image v0.12.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 )
 
