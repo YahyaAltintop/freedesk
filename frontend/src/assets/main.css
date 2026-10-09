@@ -662,36 +662,6 @@ code {
   color: var(--fd-step-num);
 }
 
-.fd-how {
-  display: grid;
-  gap: 1.35rem;
-}
-.fd-how-step {
-  display: grid;
-  grid-template-columns: 2.6rem 1fr;
-  gap: 0.9rem;
-}
-.fd-how-step strong {
-  font-family: var(--fd-font-mono);
-  font-size: 0.95rem;
-}
-.fd-how-step p {
-  margin: 0.2rem 0 0;
-  color: var(--fd-muted);
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-.fd-how-num {
-  font-family: var(--fd-font-mono);
-  font-weight: 800;
-  font-size: 1.35rem;
-  line-height: 1.2;
-  background: var(--fd-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
 /* ---- Sections & feature tiles ------------------------------------------- */
 
 .fd-section {

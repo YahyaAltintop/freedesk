@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import DownloadButton from '@/components/DownloadButton.vue'
+import HowItWorks from '@/components/how-it-works/HowItWorks.vue'
 import type { IconName } from '@/components/icons'
 import { useAuthStore } from '@/stores/auth.store'
 import { fetchHostByCode, removeStaleHost } from '@/services/host.service'
@@ -280,29 +281,32 @@ const features: Feature[] = [
     </div>
   </section>
 
-  <!-- Share this computer + how it works -->
-  <section id="share" class="container fd-section">
-    <div class="row g-4">
-      <div class="col-lg-6">
-        <div class="fd-card h-100 d-flex flex-column">
-          <div class="fd-card-head fd-card-head-split">
-            <div class="d-flex align-items-center gap-3">
-              <span class="fd-icon-badge" :class="{ 'is-success': identity }">
-                <AppIcon name="hash" />
-              </span>
-              <div>
-                <h2 class="fd-card-title">Share this computer</h2>
-                <p class="fd-card-sub">Let someone control this PC.</p>
-              </div>
-            </div>
-            <span v-if="identityChecked" class="fd-status" :class="identity ? 'is-on' : 'is-off'">
-              <span class="fd-status-dot"></span>
-              {{ identity ? 'agent running' : 'agent not detected' }}
-            </span>
-          </div>
+  <!-- How it works: the three steps, played as short scenes -->
+  <HowItWorks />
 
+  <!-- Share this computer -->
+  <section id="share" class="container fd-section">
+    <div class="fd-card">
+      <div class="fd-card-head fd-card-head-split">
+        <div class="d-flex align-items-center gap-3">
+          <span class="fd-icon-badge" :class="{ 'is-success': identity }">
+            <AppIcon name="hash" />
+          </span>
+          <div>
+            <h2 class="fd-card-title">Share this computer</h2>
+            <p class="fd-card-sub">Let someone control this PC.</p>
+          </div>
+        </div>
+        <span v-if="identityChecked" class="fd-status" :class="identity ? 'is-on' : 'is-off'">
+          <span class="fd-status-dot"></span>
+          {{ identity ? 'agent running' : 'agent not detected' }}
+        </span>
+      </div>
+
+      <div class="row g-4 align-items-center">
+        <div class="col-lg-6">
           <!-- What the host program's window shows, live when it is running here. -->
-          <div class="fd-term mb-3" aria-live="polite">
+          <div class="fd-term" aria-live="polite">
             <div class="fd-term-bar">
               <span class="fd-term-dot"></span>
               <span class="fd-term-dot"></span>
@@ -332,7 +336,9 @@ const features: Feature[] = [
               </template>
             </div>
           </div>
+        </div>
 
+        <div class="col-lg-6">
           <template v-if="identity">
             <p class="fd-hint">
               Share this code. You click <strong>Yes</strong> on every connection. New code on
@@ -348,7 +354,7 @@ const features: Feature[] = [
                 Get {{ hostUpdate.version }}
               </a>
             </div>
-            <div class="mt-auto">
+            <div>
               <button
                 class="btn btn-fd-ghost d-inline-flex align-items-center gap-2"
                 type="button"
@@ -374,7 +380,7 @@ const features: Feature[] = [
                 <span><strong>Share the code</strong> it shows.</span>
               </li>
             </ol>
-            <div class="d-flex flex-wrap align-items-start gap-3 mt-auto">
+            <div class="d-flex flex-wrap align-items-start gap-3">
               <DownloadButton />
               <button
                 class="btn btn-fd-ghost btn-lg d-inline-flex align-items-center gap-2"
@@ -397,41 +403,6 @@ const features: Feature[] = [
               release page.
             </p>
           </template>
-        </div>
-      </div>
-
-      <div id="how" class="col-lg-6">
-        <div class="fd-card h-100">
-          <div class="fd-card-head">
-            <span class="fd-icon-badge is-pink"><AppIcon name="mouse-pointer" /></span>
-            <div>
-              <h2 class="fd-card-title">How it works</h2>
-              <p class="fd-card-sub">Three steps. One minute.</p>
-            </div>
-          </div>
-          <div class="fd-how">
-            <div class="fd-how-step">
-              <span class="fd-how-num">01</span>
-              <div>
-                <strong>Run the host program</strong>
-                <p>On the PC to share. It shows a 6-digit code.</p>
-              </div>
-            </div>
-            <div class="fd-how-step">
-              <span class="fd-how-num">02</span>
-              <div>
-                <strong>Enter the code</strong>
-                <p>Open this page anywhere. Type it. Connect.</p>
-              </div>
-            </div>
-            <div class="fd-how-step">
-              <span class="fd-how-num">03</span>
-              <div>
-                <strong>Click Yes on the host</strong>
-                <p>A window pops up there. Yes, and the screen is yours.</p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

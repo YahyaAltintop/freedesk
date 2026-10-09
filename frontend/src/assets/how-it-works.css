@@ -1,0 +1,1456 @@
+/* How it works: the three scenes of the home page's carousel
+   (src/components/how-it-works/). Each scene is a 50em x 30em world drawn in
+   CSS. Its font-size is in container query units, so the whole picture scales
+   with the slide it sits in. The host program's windows are drawn light, like
+   the real Win32 ones, and a scene looks the same in both site themes, the way
+   a screen recording would.
+
+   Timeline: every beat is a fraction of --how-step (that step's duration),
+   set per element as --at (appears, or happens) and --to (disappears). Base
+   styles are the LAST frame, so a scene that is not playing shows a poster.
+   HowItWorks.vue puts .hs-run on the playing slide and .hs-frozen on the
+   section while everything has to stand still. Prefixed hs- throughout: this
+   sheet is global and Bootstrap owns names like .card and .toast. */
+
+.hs {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', var(--fd-font-sans);
+  font-size: 2cqw; /* 50em = the slide's width */
+  line-height: 1.3;
+  color: #1b1b1b;
+  text-align: left;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.hs .fd-icon {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
+/* The camera: the scene's world, moved and scaled to frame the action, like
+   the zooms of a screen recording. A shot is translate(X, Y) scale(s) about
+   the top-left corner; to centre world point (fx, fy), X = 25 - s * fx and
+   Y = 15 - s * fy, kept within [50 - 50s, 0] and [30 - 30s, 0] so no edge
+   shows. Each scene starts on its last framing (the poster a peeking card
+   shows, so a card sliding in does not jump) and pushes in once it has landed.
+   The chips stay outside: they label the screen, not the picture. */
+.hs-cam {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 50em;
+  height: 30em;
+  transform-origin: 0 0;
+}
+.hs-cam-run {
+  transform: translate(-9.6em, -1.92em) scale(1.2);
+}
+.hs-cam-enter {
+  transform: translate(-4.1em, -0.6em) scale(1.15);
+}
+.hs-cam-approve {
+  transform: translate(-3em, -0.98em) scale(1.12);
+}
+
+/* ---- Desktop -------------------------------------------------------------- */
+
+.hs-wall {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(32em 20em at 8% -12%, rgba(139, 92, 246, 0.42), transparent 62%),
+    radial-gradient(26em 18em at 100% 6%, rgba(236, 72, 153, 0.26), transparent 62%),
+    radial-gradient(26em 14em at 62% 118%, rgba(249, 115, 22, 0.2), transparent 62%),
+    #0b0d14;
+}
+.hs-wall::after,
+.hs-bw-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 2.75em 2.75em;
+  -webkit-mask-image: radial-gradient(80% 85% at 50% 30%, #000 25%, transparent 100%);
+  mask-image: radial-gradient(80% 85% at 50% 30%, #000 25%, transparent 100%);
+}
+/* The viewer's side: some other device, not the host's desktop. */
+.hs-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(30em 18em at 50% 120%, rgba(139, 92, 246, 0.22), transparent 65%),
+    #07090f;
+}
+/* Step 3 cuts from the host to the viewer: the backdrop covers the desktop. */
+.hs-backdrop.is-cover {
+  z-index: 9;
+}
+
+/* Which screen we are looking at: the host PC or the viewer's browser. */
+.hs-chip {
+  position: absolute;
+  left: 1.1em;
+  top: 1em;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  height: 1.4em;
+  padding: 0 0.7em;
+  border-radius: 99em;
+  background: rgba(7, 9, 15, 0.74);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.hs-chip::before {
+  content: '';
+  width: 0.42em;
+  height: 0.42em;
+  border-radius: 50%;
+  background: #ec4899;
+  box-shadow: 0 0 0 0.18em rgba(236, 72, 153, 0.25);
+}
+.hs-chip.is-viewer::before {
+  background: #a78bfa;
+  box-shadow: 0 0 0 0.18em rgba(167, 139, 250, 0.25);
+}
+.hs-chip > span {
+  font-family: var(--fd-font-mono);
+  font-size: 0.5em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #dfe3ec;
+}
+
+.hs-dicon {
+  position: absolute;
+  left: 9.5em;
+  top: 4.6em;
+  width: 3.2em;
+  padding: 0.3em 0 0.4em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3em;
+  border-radius: 0.35em;
+}
+.hs-dicon-sel {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.35em;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+.hs-tile {
+  position: relative;
+  width: 2.4em;
+  height: 2.4em;
+  display: grid;
+  place-items: center;
+  border-radius: 0.6em;
+  background: var(--fd-gradient);
+  color: #fff;
+  box-shadow: 0 0.5em 1.2em -0.4em rgba(236, 72, 153, 0.7);
+}
+.hs-tile .fd-icon {
+  width: 1.25em;
+  height: 1.25em;
+  stroke-width: 2.2;
+}
+.hs-dicon-label {
+  position: relative;
+  font-size: 0.52em;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.hs-taskbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  height: 2.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55em;
+  background: rgba(18, 20, 28, 0.88);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.hs-tb-start {
+  width: 1.35em;
+  height: 1.35em;
+  display: grid;
+  place-items: center;
+  color: #4cc2ff;
+}
+.hs-tb-start .fd-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+.hs-tb-search {
+  width: 4.6em;
+  height: 1.35em;
+  border-radius: 99em;
+  background: rgba(255, 255, 255, 0.08);
+}
+.hs-tb-app {
+  width: 1.35em;
+  height: 1.35em;
+  border-radius: 0.32em;
+  background: rgba(255, 255, 255, 0.1);
+}
+.hs-tb-fd {
+  position: relative;
+  width: 1.8em;
+  height: 1.8em;
+  display: grid;
+  place-items: center;
+  border-radius: 0.35em;
+}
+.hs-tb-fd::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0.1em;
+  width: 0.5em;
+  height: 0.14em;
+  margin-left: -0.25em;
+  border-radius: 0.1em;
+  background: #ec4899;
+}
+.hs-tb-mark {
+  width: 1.2em;
+  height: 1.2em;
+  display: grid;
+  place-items: center;
+  border-radius: 0.32em;
+  background: var(--fd-gradient);
+  color: #fff;
+}
+.hs-tb-mark .fd-icon {
+  width: 0.72em;
+  height: 0.72em;
+  stroke-width: 2.6;
+}
+
+/* ---- The host program's windows (Windows 11, light) ------------------------ */
+
+.hs-win {
+  position: absolute;
+  z-index: 5;
+  overflow: hidden;
+  color: #1b1b1b;
+  background: #f3f3f3;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 0.55em;
+  box-shadow: 0 1.6em 3.2em -1em rgba(0, 0, 0, 0.65);
+}
+.hs-win-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1.9em;
+  display: flex;
+  align-items: center;
+}
+.hs-win-ico {
+  flex: none;
+  width: 0.85em;
+  height: 0.85em;
+  margin: 0 0.3em 0 0.75em;
+  border-radius: 0.22em;
+  background: var(--fd-gradient);
+}
+.hs-win-name {
+  font-size: 0.56em;
+  line-height: 1;
+}
+.hs-win-caps {
+  display: flex;
+  height: 100%;
+  margin-left: auto;
+  color: #333;
+}
+.hs-win-cap {
+  width: 2.1em;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+.hs-win-cap .fd-icon {
+  width: 0.62em;
+  height: 0.62em;
+  stroke-width: 1.6;
+}
+.hs-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  line-height: 1;
+}
+.hs-t-label {
+  font-size: 0.58em;
+  color: #4a4a4a;
+}
+.hs-t-code {
+  font-size: 2.15em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: #141414;
+}
+.hs-t-note {
+  font-size: 0.58em;
+  color: #666;
+}
+.hs-t-line {
+  font-size: 0.54em;
+  color: #4a4a4a;
+}
+.hs-wbtn {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  background: #fdfdfd;
+  border: 1px solid #d0d0d0;
+  border-bottom-color: #b9b9b9;
+  border-radius: 0.28em;
+}
+.hs-wbtn-t {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: 0.56em;
+  line-height: 1;
+  color: #1b1b1b;
+}
+.hs-wbtn-t.is-ok {
+  font-weight: 600;
+  color: #0f7b0f;
+}
+.hs-wbtn-t.is-ok .fd-icon {
+  width: 1.1em;
+  height: 1.1em;
+  stroke-width: 3;
+}
+.hs-act {
+  position: absolute;
+  left: 1em;
+  top: 11.55em;
+  line-height: 1;
+}
+.hs-act > span {
+  font-size: 0.52em;
+  color: #333;
+}
+.hs-log {
+  position: absolute;
+  left: 1em;
+  right: 1em;
+  top: 12.4em;
+  bottom: 1em;
+  padding: 0.45em 0.6em;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #d6d6d6;
+  border-radius: 0.2em;
+}
+.hs-log > div {
+  font-family: 'Cascadia Mono', Consolas, var(--fd-font-mono);
+  font-size: 0.44em;
+  line-height: 1.75;
+  white-space: nowrap;
+  color: #333;
+}
+
+/* The consent box: a Windows question box whose default button is "No". */
+.hs-dlg {
+  position: absolute;
+  z-index: 8;
+  overflow: hidden;
+  color: #1b1b1b;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 0.55em;
+  box-shadow: 0 2em 4em -1em rgba(0, 0, 0, 0.7);
+}
+.hs-dlg-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1.8em;
+  display: flex;
+  align-items: center;
+  padding-left: 0.85em;
+}
+.hs-dlg-title {
+  font-size: 0.55em;
+}
+.hs-dlg-bar .hs-win-cap {
+  margin-left: auto;
+  color: #333;
+}
+.hs-dlg-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1.8em;
+  display: flex;
+  gap: 0.8em;
+  padding: 1em 1.1em;
+}
+.hs-dlg-ico {
+  flex: none;
+  width: 1.7em;
+  height: 1.7em;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #0067c0;
+  border-radius: 50%;
+}
+.hs-dlg-txt {
+  min-width: 0;
+}
+.hs-dlg-txt p {
+  margin: 0 0 0.55em;
+  font-size: 0.6em;
+  line-height: 1.45;
+}
+.hs-dlg-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 9.2em;
+  bottom: 0;
+  background: #f3f3f3;
+  border-top: 1px solid #e5e5e5;
+}
+.hs-dlg-btn {
+  position: absolute;
+  top: 0.55em;
+  width: 4.4em;
+  height: 1.5em;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  background: #fdfdfd;
+  border: 1px solid #d0d0d0;
+  border-bottom-color: #b9b9b9;
+  border-radius: 0.28em;
+}
+.hs-dlg-btn > span {
+  font-size: 0.58em;
+}
+.hs-dlg-btn.is-default {
+  border: 0.12em solid #005fb8;
+}
+
+.hs-share {
+  position: absolute;
+  z-index: 6;
+  width: 11.4em;
+  padding: 0.85em 0.95em 0.9em;
+  color: #eef0f6;
+  background: rgba(17, 20, 29, 0.95);
+  border: 1px solid rgba(236, 72, 153, 0.5);
+  border-radius: 0.85em;
+  box-shadow: 0 1.2em 2.6em -1em rgba(236, 72, 153, 0.5);
+}
+.hs-share-k {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  line-height: 1;
+  color: #f9a8d4;
+}
+.hs-share-k .fd-icon {
+  width: 0.72em;
+  height: 0.72em;
+  stroke-width: 2.2;
+}
+.hs-share-k > span {
+  font-family: var(--fd-font-mono);
+  font-size: 0.46em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.hs-share-code {
+  margin-top: 0.4em;
+  line-height: 1;
+}
+.hs-share-code > span {
+  font-family: var(--fd-font-mono);
+  font-size: 1.55em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+.hs-share-sub {
+  margin-top: 0.5em;
+  line-height: 1.3;
+}
+.hs-share-sub > span {
+  font-size: 0.5em;
+  color: #9aa3b5;
+}
+
+/* ---- A browser showing this site --------------------------------------------- */
+
+.hs-bw {
+  position: absolute;
+  z-index: 10;
+  overflow: hidden;
+  background: #0b0d14;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.65em;
+  box-shadow:
+    0 2.2em 4.4em -1.6em rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.hs-bw-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 3;
+  height: 2.1em;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0 0.85em;
+  background: #171a24;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.hs-bw-dot {
+  flex: none;
+  width: 0.52em;
+  height: 0.52em;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+.hs-bw-dot:nth-child(2) {
+  background: #febc2e;
+}
+.hs-bw-dot:nth-child(3) {
+  background: #28c840;
+}
+.hs-bw-addr {
+  flex: 1;
+  max-width: 20em;
+  height: 1.25em;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  color: #9aa3b5;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 99em;
+}
+.hs-bw-addr .fd-icon {
+  width: 0.58em;
+  height: 0.58em;
+  stroke-width: 2.4;
+}
+.hs-bw-addr > span {
+  font-family: var(--fd-font-mono);
+  font-size: 0.5em;
+}
+.hs-bw-end {
+  flex: none;
+  width: 2.6em;
+}
+.hs-bw-live {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  height: 1.25em;
+  padding: 0 0.55em;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 99em;
+}
+.hs-bw-live::before {
+  content: '';
+  width: 0.38em;
+  height: 0.38em;
+  border-radius: 50%;
+  background: #22c55e;
+}
+.hs-bw-live > span {
+  font-family: var(--fd-font-mono);
+  font-size: 0.46em;
+  color: #4ade80;
+}
+.hs-bw-page {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2.1em;
+  bottom: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(26em 16em at 12% -10%, rgba(139, 92, 246, 0.3), transparent 60%),
+    radial-gradient(22em 14em at 96% 8%, rgba(236, 72, 153, 0.18), transparent 60%),
+    #0b0d14;
+}
+/* Showing a remote desktop: that desktop's wallpaper brings its own grid. */
+.hs-bw-page.is-desktop::after {
+  content: none;
+}
+.hs-site-nav {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 1;
+  height: 2em;
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0 1.1em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.hs-site-mark {
+  width: 1.05em;
+  height: 1.05em;
+  display: grid;
+  place-items: center;
+  border-radius: 0.3em;
+  background: var(--fd-gradient);
+  color: #fff;
+}
+.hs-site-mark .fd-icon {
+  width: 0.62em;
+  height: 0.62em;
+  stroke-width: 2.6;
+}
+.hs-site-name {
+  font-family: var(--fd-font-mono);
+  font-size: 0.58em;
+  font-weight: 700;
+  line-height: 1;
+  color: #eef0f6;
+}
+
+/* The home page's hero, beside the Connect card. */
+.hs-hero {
+  position: absolute;
+  z-index: 1;
+  width: 18.5em;
+}
+.hs-hero-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  line-height: 1;
+}
+.hs-hero-eyebrow::before {
+  content: '';
+  width: 0.36em;
+  height: 0.36em;
+  border-radius: 0.08em;
+  background: var(--fd-gradient);
+}
+.hs-hero-eyebrow > span {
+  font-family: var(--fd-font-mono);
+  font-size: 0.4em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9aa3b5;
+}
+.hs-hero-h {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.5em;
+  font-family: var(--fd-font-mono);
+  font-size: 1.42em;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  color: #eef0f6;
+}
+.hs-hero-h > .is-grad {
+  background: var(--fd-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hs-hero-lead {
+  margin-top: 0.8em;
+  line-height: 1.4;
+}
+.hs-hero-lead > span {
+  font-size: 0.56em;
+  color: #9aa3b5;
+}
+.hs-hero-btns {
+  display: flex;
+  gap: 0.5em;
+  margin-top: 1em;
+}
+.hs-hero-btn {
+  height: 1.7em;
+  display: flex;
+  align-items: center;
+  padding: 0 0.8em;
+  color: #fff;
+  background: var(--fd-gradient);
+  border-radius: 0.5em;
+  box-shadow: 0 0.4em 1em -0.4em rgba(236, 72, 153, 0.6);
+}
+.hs-hero-btn.is-ghost {
+  color: #eef0f6;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+.hs-hero-btn > span {
+  font-size: 0.5em;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* The home page's "Connect to a computer" card. */
+.hs-card {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid transparent;
+  border-radius: 1em;
+  background:
+    linear-gradient(#11141d, #11141d) padding-box,
+    linear-gradient(135deg, rgba(139, 92, 246, 0.75), rgba(236, 72, 153, 0.45), rgba(249, 115, 22, 0.35))
+      border-box;
+  box-shadow: 0 1.4em 3em -1.6em rgba(0, 0, 0, 0.9);
+}
+.hs-card-badge {
+  position: absolute;
+  left: 1.2em;
+  top: 1.2em;
+  width: 1.9em;
+  height: 1.9em;
+  display: grid;
+  place-items: center;
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.14);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 0.55em;
+}
+.hs-card-badge .fd-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+.hs-card-title,
+.hs-card-sub,
+.hs-card-label {
+  position: absolute;
+  line-height: 1;
+}
+.hs-card-title {
+  left: 3.55em;
+  top: 1.3em;
+}
+.hs-card-title > span {
+  font-family: var(--fd-font-mono);
+  font-size: 0.7em;
+  font-weight: 700;
+  color: #eef0f6;
+}
+.hs-card-sub {
+  left: 3.55em;
+  top: 2.25em;
+}
+.hs-card-sub > span {
+  font-size: 0.54em;
+  color: #9aa3b5;
+}
+.hs-card-label {
+  left: 1.2em;
+  top: 3.85em;
+}
+.hs-card-label > span {
+  font-family: var(--fd-font-mono);
+  font-size: 0.44em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7c8598;
+}
+.hs-input {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0.7em;
+}
+.hs-input-focus {
+  position: absolute;
+  inset: -1px;
+  border: 1px solid rgba(236, 72, 153, 0.75);
+  border-radius: 0.7em;
+  box-shadow: 0 0 0 0.25em rgba(236, 72, 153, 0.18);
+}
+.hs-input-ph,
+.hs-input-txt {
+  grid-area: 1 / 1;
+  font-family: var(--fd-font-mono);
+  font-size: 1.3em;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  white-space: pre;
+}
+.hs-input-ph {
+  color: #5f687b;
+}
+.hs-input-txt {
+  display: flex;
+  align-items: center;
+  color: #fff;
+}
+/* One typed character: it takes no room until its beat. */
+.hs-ch {
+  display: inline-block;
+  max-width: 3em;
+  overflow: hidden;
+  white-space: pre;
+  vertical-align: top;
+}
+.hs-caret {
+  display: block;
+  width: 0.09em;
+  height: 1.05em;
+  background: #ec4899;
+}
+.hs-connect {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background-image: var(--fd-gradient);
+  border-radius: 0.7em;
+  box-shadow: 0 0.6em 1.6em -0.6em rgba(236, 72, 153, 0.6);
+}
+.hs-connect-l {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.66em;
+  font-weight: 600;
+  line-height: 1;
+}
+.hs-connect-l .fd-icon {
+  width: 1.2em;
+  height: 1.2em;
+  stroke-width: 2.4;
+}
+.hs-spin {
+  display: block;
+  width: 1.45em;
+  height: 1.45em;
+  border: 0.2em solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+}
+.hs-card-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 10.8em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  line-height: 1;
+}
+.hs-card-hint > span {
+  font-size: 0.52em;
+  color: #9aa3b5;
+}
+.hs-card-hint b {
+  font-weight: 600;
+  color: #eef0f6;
+}
+.hs-card-hint > .hs-pulse {
+  font-size: 1em;
+}
+.hs-pulse {
+  display: block;
+  width: 0.42em;
+  height: 0.42em;
+  border-radius: 50%;
+  background: #ec4899;
+}
+
+/* The host's desktop as the viewer sees it, scaled down. */
+.hs-mini-icon {
+  position: absolute;
+  left: 1.5em;
+  top: 1.4em;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 0.4em;
+  background: var(--fd-gradient);
+}
+.hs-mini-win {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  background: #f3f3f3;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 0.4em;
+  box-shadow: 0 1em 2em -0.8em rgba(0, 0, 0, 0.6);
+  transform: translate(12em, 5em);
+}
+.hs-mini-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1.2em;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding-left: 0.5em;
+}
+.hs-mini-bar::before {
+  content: '';
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 0.15em;
+  background: var(--fd-gradient);
+}
+.hs-mini-bar > span {
+  font-size: 0.4em;
+}
+.hs-mini-win .hs-t-label {
+  font-size: 0.4em;
+}
+.hs-mini-win .hs-t-code {
+  font-size: 1.4em;
+}
+.hs-mini-win .hs-wbtn-t {
+  font-size: 0.4em;
+}
+.hs-mini-task {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  height: 1.5em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  background: rgba(18, 20, 28, 0.88);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.hs-mini-task > span {
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 0.22em;
+  background: rgba(255, 255, 255, 0.12);
+}
+.hs-mini-task > span:last-child {
+  background: var(--fd-gradient);
+}
+.hs-note-w {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2.4em;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+}
+.hs-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.5em 0.9em;
+  line-height: 1;
+  background: rgba(7, 9, 15, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 99em;
+}
+.hs-note::before {
+  content: '';
+  width: 0.42em;
+  height: 0.42em;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 0.18em rgba(34, 197, 94, 0.25);
+}
+.hs-note > span {
+  font-size: 0.52em;
+  color: #eef0f6;
+}
+
+/* ---- Pointer and clicks -------------------------------------------------------- */
+
+.hs-cur {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  width: 1.05em;
+  height: 1.65em;
+  filter: drop-shadow(0 0.12em 0.2em rgba(0, 0, 0, 0.55));
+}
+.hs-cur svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hs-ring {
+  position: absolute;
+  z-index: 35;
+  width: 2.4em;
+  height: 2.4em;
+  margin: -1.2em 0 0 -1.2em;
+  border: 0.14em solid #ec4899;
+  border-radius: 50%;
+  opacity: 0;
+}
+
+/* ---- Timeline ---------------------------------------------------------------- */
+
+.hs-out,
+.hs-in-out,
+.hs-pop-out {
+  visibility: hidden;
+}
+.hs-run .hs-in {
+  animation: hs-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--how-step) * var(--at, 0));
+}
+.hs-run .hs-out {
+  animation: hs-out 0.01s linear both;
+  animation-delay: calc(var(--how-step) * var(--to, 0));
+}
+.hs-run .hs-in-out {
+  animation:
+    hs-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    hs-out 0.01s linear both;
+  animation-delay: calc(var(--how-step) * var(--at, 0)), calc(var(--how-step) * var(--to, 0));
+}
+.hs-run .hs-pop {
+  animation: hs-pop 0.45s cubic-bezier(0.2, 0.8, 0.2, 1.1) both;
+  animation-delay: calc(var(--how-step) * var(--at, 0));
+}
+.hs-run .hs-pop-out {
+  animation:
+    hs-pop 0.45s cubic-bezier(0.2, 0.8, 0.2, 1.1) both,
+    hs-out 0.01s linear both;
+  animation-delay: calc(var(--how-step) * var(--at, 0)), calc(var(--how-step) * var(--to, 0));
+}
+.hs-run .hs-rise {
+  animation: hs-rise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--how-step) * var(--at, 0));
+}
+.hs-run .hs-fade {
+  animation: hs-fade 0.5s ease both;
+  animation-delay: calc(var(--how-step) * var(--at, 0));
+}
+.hs-run .hs-type {
+  animation: hs-type 0.01s linear both;
+  animation-delay: calc(var(--how-step) * var(--at, 0));
+}
+.hs-run .hs-press {
+  animation: hs-press 0.3s ease both;
+  animation-delay: calc(var(--how-step) * var(--at, 0));
+}
+.hs-run .hs-ring {
+  animation: hs-ring 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--how-step) * var(--at, 0));
+}
+.hs-run .hs-flash {
+  animation: hs-flash 0.45s ease-in-out 6 alternate both;
+  animation-delay: calc(var(--how-step) * var(--at, 0));
+}
+/* Disabled until the code is complete (--at), then pressed (--press). */
+.hs-run .hs-connect {
+  animation:
+    hs-undim 0.3s ease both,
+    hs-press 0.3s ease both;
+  animation-delay: calc(var(--how-step) * var(--at, 0)), calc(var(--how-step) * var(--press, 0));
+}
+.hs-run .hs-caret {
+  animation: hs-blink 1.05s steps(2, start) infinite;
+}
+.hs-run .hs-spin {
+  animation: hs-spin 0.8s linear infinite;
+}
+.hs-run .hs-pulse {
+  animation: hs-pulse 1.4s ease-out infinite;
+}
+
+.hs-cur-run {
+  transform: translate(40em, 15.5em);
+}
+.hs-cur-enter {
+  transform: translate(32em, 25.2em);
+}
+.hs-cur-host {
+  transform: translate(28.2em, 17.6em);
+  opacity: 0;
+}
+.hs-cur-remote {
+  transform: translate(25.5em, 13.9em);
+}
+.hs-run .hs-cur-run {
+  animation: hs-cur-run var(--how-step) linear both;
+}
+.hs-run .hs-cur-enter {
+  animation: hs-cur-enter var(--how-step) linear both;
+}
+.hs-run .hs-cur-host {
+  animation: hs-cur-host var(--how-step) linear both;
+}
+.hs-run .hs-cur-remote {
+  animation: hs-cur-remote var(--how-step) linear both;
+}
+.hs-run .hs-drag {
+  animation: hs-drag var(--how-step) linear both;
+}
+.hs-run .hs-cam-run {
+  animation: hs-cam-run var(--how-step) linear both;
+}
+.hs-run .hs-cam-enter {
+  animation: hs-cam-enter var(--how-step) linear both;
+}
+.hs-run .hs-cam-approve {
+  animation: hs-cam-approve var(--how-step) linear both;
+}
+
+.hs-frozen .hs-run,
+.hs-frozen .hs-run * {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hs,
+  .hs * {
+    animation: none !important;
+  }
+}
+
+@keyframes hs-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35em);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* The switch to hidden sits right at the start, not at the end. Visibility
+   only reads "hidden" at progress exactly 1, and a delay like 7000ms * 0.56
+   comes out as 3920.0000000000005ms: an animation that finishes on its own
+   is then held a hair short of 1 and the old text stayed on screen under the
+   new one ("Copy code" under "Copied"). Seeking past the end never showed it. */
+@keyframes hs-out {
+  0% {
+    visibility: visible;
+  }
+  0.1%,
+  100% {
+    visibility: hidden;
+  }
+}
+@keyframes hs-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(0.4em);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hs-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4em) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hs-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes hs-type {
+  from {
+    max-width: 0;
+  }
+  to {
+    max-width: 3em;
+  }
+}
+@keyframes hs-press {
+  0%,
+  100% {
+    transform: none;
+  }
+  45% {
+    transform: scale(0.94);
+  }
+}
+@keyframes hs-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.25);
+  }
+  1% {
+    opacity: 0.95;
+    transform: scale(0.25);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+@keyframes hs-flash {
+  from {
+    background: transparent;
+  }
+  to {
+    background: rgba(247, 164, 64, 0.55);
+  }
+}
+@keyframes hs-undim {
+  from {
+    filter: saturate(0.3) brightness(0.7);
+    box-shadow: none;
+  }
+  to {
+    filter: none;
+    box-shadow: 0 0.6em 1.6em -0.6em rgba(236, 72, 153, 0.6);
+  }
+}
+@keyframes hs-blink {
+  to {
+    visibility: hidden;
+  }
+}
+@keyframes hs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes hs-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(236, 72, 153, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 0.5em rgba(236, 72, 153, 0);
+  }
+}
+
+/* Step 1: double-click freedesk.exe, then Copy code. */
+@keyframes hs-cur-run {
+  0% {
+    transform: translate(34em, 24em);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  9% {
+    transform: translate(11.1em, 6.1em);
+  }
+  44% {
+    transform: translate(11.1em, 6.1em);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  54% {
+    transform: translate(25.3em, 10.9em);
+  }
+  70% {
+    transform: translate(25.3em, 10.9em);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  80%,
+  100% {
+    transform: translate(40em, 15.5em);
+  }
+}
+/* Step 2: click into the code box, then Connect. */
+@keyframes hs-cur-enter {
+  0% {
+    transform: translate(46.5em, 27.5em);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  10% {
+    transform: translate(42.2em, 17.9em);
+  }
+  44% {
+    transform: translate(42.2em, 17.9em);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  53% {
+    transform: translate(38.6em, 20.7em);
+  }
+  70% {
+    transform: translate(38.6em, 20.7em);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  80%,
+  100% {
+    transform: translate(32em, 25.2em);
+  }
+}
+/* Step 3: the host's pointer reaches Yes after the box has been read... */
+@keyframes hs-cur-host {
+  0%,
+  14% {
+    transform: translate(40em, 25em);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  32% {
+    transform: translate(28.2em, 17.6em);
+    opacity: 1;
+  }
+  41% {
+    transform: translate(28.2em, 17.6em);
+    opacity: 1;
+  }
+  45%,
+  100% {
+    transform: translate(28.2em, 17.6em);
+    opacity: 0;
+  }
+}
+/* ...then the viewer's pointer drags a window on the host's desktop. */
+@keyframes hs-cur-remote {
+  0%,
+  56% {
+    transform: translate(31em, 21em);
+    opacity: 0;
+  }
+  58% {
+    transform: translate(31em, 21em);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  67% {
+    transform: translate(13.5em, 8.9em);
+  }
+  70% {
+    transform: translate(13.5em, 8.9em);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  84%,
+  100% {
+    transform: translate(25.5em, 13.9em);
+    opacity: 1;
+  }
+}
+@keyframes hs-drag {
+  0%,
+  70% {
+    transform: translate(0, 0);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  84%,
+  100% {
+    transform: translate(12em, 5em);
+  }
+}
+
+/* Step 1 shots: the desktop and its icon, the window as it opens, close on
+   the code and Copy code, then back out for the window and the share card. */
+@keyframes hs-cam-run {
+  0%,
+  15% {
+    transform: translate(-9.6em, -1.92em) scale(1.2);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  24%,
+  46% {
+    transform: translate(-13.75em, -2.83em) scale(1.55);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  54%,
+  60% {
+    transform: translate(-20em, -2.28em) scale(1.8);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  70%,
+  100% {
+    transform: translate(-9.6em, -1.92em) scale(1.2);
+  }
+}
+/* Step 2 shots: the page, close on the card while the code goes in and
+   Connect is pressed, then back to the page waiting. */
+@keyframes hs-cam-enter {
+  0%,
+  11% {
+    transform: translate(-4.1em, -0.6em) scale(1.15);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  18%,
+  60% {
+    transform: translate(-37.125em, -15.8em) scale(1.75);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  72%,
+  100% {
+    transform: translate(-4.1em, -0.6em) scale(1.15);
+  }
+}
+/* Step 3 shots: close on the consent box until Yes, wide for the browser,
+   in on the drag, wide again to end on the whole picture. */
+@keyframes hs-cam-approve {
+  0%,
+  9% {
+    transform: translate(-3em, -0.98em) scale(1.12);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  16%,
+  42% {
+    transform: translate(-20em, -8.22em) scale(1.8);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  50%,
+  58% {
+    transform: translate(-3em, -0.98em) scale(1.12);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  65%,
+  86% {
+    transform: translate(-7.2em, -6.7em) scale(1.4);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  94%,
+  100% {
+    transform: translate(-3em, -0.98em) scale(1.12);
+  }
+}
