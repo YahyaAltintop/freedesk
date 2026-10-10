@@ -89,6 +89,7 @@ const (
 	idCopy           = 1001
 	idUpdate         = 1002
 	idLicenses       = 1003
+	idPrivacy        = 1004
 	idCopiedTimer    = 1
 	swHide           = 0
 	swShowNormal     = 1
@@ -238,6 +239,7 @@ type window struct {
 	statusCtl   uintptr
 	updateBtn   uintptr // hidden until a newer release is known
 	licensesBtn uintptr // only when there are license texts to show
+	privacyBtn  uintptr // only when there is a privacy page to open
 	activityCtl uintptr
 
 	mu      sync.Mutex
@@ -357,8 +359,16 @@ func (w *window) create() error {
 	w.updateBtn = w.child(0, "BUTTON", "", bsOwnerDraw|wsTabStop, 130, 196, 200, 30, idUpdate, w.fonts.bold)
 	procShowWindow.Call(w.updateBtn, swHide)
 	w.child(0, "STATIC", "Activity", ssLeft, 20, 234, 200, 18, 0, w.fonts.ui)
-	// The licenses of the code in the exe, which ships alone: kept small, at
-	// the right end of the Activity caption's row, out of the operator's way.
+	// What the program sends where, and the licenses of the code in the exe,
+	// which ships alone: kept small, at the right end of the Activity caption's
+	// row, out of the operator's way. Created left to right, for the Tab order.
+	privacyX := int32(360)
+	if w.opts.Licenses != "" {
+		privacyX = 274
+	}
+	if w.opts.PrivacyURL != "" {
+		w.privacyBtn = w.child(0, "BUTTON", "Privacy", bsPushButton|wsTabStop, privacyX, 229, 80, 23, idPrivacy, w.fonts.ui)
+	}
 	if w.opts.Licenses != "" {
 		w.licensesBtn = w.child(0, "BUTTON", "Licenses", bsPushButton|wsTabStop, 360, 229, 80, 23, idLicenses, w.fonts.ui)
 	}
@@ -512,6 +522,8 @@ func wndProc(hwnd uintptr, m uint32, wParam, lParam uintptr) uintptr {
 				w.openUpdate()
 			case idLicenses:
 				w.showLicenses()
+			case idPrivacy:
+				w.openURL(w.opts.PrivacyURL)
 			}
 		}
 		return 0
@@ -710,19 +722,22 @@ func (w *window) drawUpdateButton(lParam uintptr) bool {
 	return true
 }
 
-// openUpdate opens the release page in the operator's browser. The address
-// was built by the agent from its configured repository, never taken from
-// the network, so it is the one place it can point.
-func (w *window) openUpdate() {
-	if w.updateURL == "" {
+// openUpdate opens the release page in the operator's browser.
+func (w *window) openUpdate() { w.openURL(w.updateURL) }
+
+// openURL opens an address in the operator's browser. Every address it is
+// given was built by the agent from its configured repository, never taken
+// from the network, so those are the only places it can point.
+func (w *window) openURL(u string) {
+	if u == "" {
 		return
 	}
 	r, _, err := procShellExecute.Call(w.hwnd,
 		uintptr(unsafe.Pointer(utf16("open"))),
-		uintptr(unsafe.Pointer(utf16(w.updateURL))),
+		uintptr(unsafe.Pointer(utf16(u))),
 		0, 0, swShowNormal)
 	if r <= 32 { // ShellExecute reports failure as a value up to 32
-		log.Printf("[host-agent] could not open the browser for %s: %v", w.updateURL, err)
+		log.Printf("[host-agent] could not open the browser for %s: %v", u, err)
 	}
 }
 

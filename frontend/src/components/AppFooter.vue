@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { ARCHITECTURE_DOC_URL, GITHUB_URL, LICENSE_URL, RELEASES_URL } from '@/constants/links'
+import {
+  ARCHITECTURE_DOC_URL,
+  GITHUB_URL,
+  LICENSE_URL,
+  PRIVACY_URL,
+  RELEASES_URL,
+} from '@/constants/links'
 </script>
 
 <template>
@@ -16,6 +22,7 @@ import { ARCHITECTURE_DOC_URL, GITHUB_URL, LICENSE_URL, RELEASES_URL } from '@/c
         <a :href="GITHUB_URL" target="_blank" rel="noopener">GitHub</a>
         <a :href="RELEASES_URL" target="_blank" rel="noopener">Releases</a>
         <a :href="ARCHITECTURE_DOC_URL" target="_blank" rel="noopener">Architecture</a>
+        <a :href="PRIVACY_URL" target="_blank" rel="noopener">Privacy</a>
       </nav>
     </div>
     <div class="container small pb-4">

@@ -11,6 +11,9 @@ export const GITHUB_URL = `https://github.com/${GITHUB_REPO}`
 export const RELEASES_URL = `${GITHUB_URL}/releases`
 export const LICENSE_URL = `${GITHUB_URL}/blob/main/LICENSE`
 export const ARCHITECTURE_DOC_URL = `${GITHUB_URL}/blob/main/docs/ARCHITECTURE.md`
+// What leaves the computer, where it goes and for how long. The host's Privacy
+// button opens the same file (host-agent internal/config PrivacyURL).
+export const PRIVACY_URL = `${GITHUB_URL}/blob/main/PRIVACY.md`
 
 // The Windows host program attached to every release: one file, with the
 // licenses of the code in it built in.

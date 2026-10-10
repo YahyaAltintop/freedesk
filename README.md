@@ -41,6 +41,7 @@ Good to know:
 - The **host** (`freedesk.exe`, Go + Pion WebRTC, one self-contained exe) captures the screen with Windows' desktop duplication, encodes it with libvpx built into the exe, and applies mouse and keyboard input. The **viewer** is a Vue 3 web page.
 - **Firebase** (anonymous auth + Realtime Database) is used only to find each other and exchange the WebRTC handshake. **Screen and input never pass through Firebase**; they travel directly between the two computers over an encrypted WebRTC connection.
 - Every launch of the host is a **new anonymous identity and a new code**; nothing is stored on disk and both are deleted when it exits. Session data is deleted when the session ends, even when a browser tab is closed abruptly.
+- What leaves your computer, where it goes and how long it stays: [PRIVACY.md](PRIVACY.md), also behind the **Privacy** button in the program's window.
 - Design, data model, security model and known limits: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The wire contract between viewer and host: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Running your own copy

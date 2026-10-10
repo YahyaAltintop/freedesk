@@ -17,6 +17,7 @@ import (
 var (
 	procFindWindow      = user32.NewProc("FindWindowW")
 	procFindWindowEx    = user32.NewProc("FindWindowExW")
+	procGetWindowRect   = user32.NewProc("GetWindowRect")
 	procGetWindowText   = user32.NewProc("GetWindowTextW")
 	procIsWindow        = user32.NewProc("IsWindow")
 	procIsWindowVisible = user32.NewProc("IsWindowVisible")
@@ -54,6 +55,13 @@ func waitWindows(t *testing.T, class string, n int) uintptr {
 func visible(ctl uintptr) bool {
 	r, _, _ := procIsWindowVisible.Call(ctl)
 	return r != 0
+}
+
+// windowRect is a control's rectangle in screen pixels.
+func windowRect(ctl uintptr) rect {
+	var r rect
+	procGetWindowRect.Call(ctl, uintptr(unsafe.Pointer(&r)))
+	return r
 }
 
 // harness runs one window on its own locked thread, the way main does, and
@@ -143,6 +151,9 @@ func TestWindowIntegration(t *testing.T) {
 		if h.win.licensesBtn != 0 {
 			t.Error("a build without license texts must not offer a Licenses button")
 		}
+		if h.win.privacyBtn != 0 {
+			t.Error("no privacy page was given, yet there is a Privacy button")
+		}
 		h.win.ShowUpdate("9.9.9", "https://github.com/owner/repo/releases/latest")
 		time.Sleep(200 * time.Millisecond)
 		if !visible(h.win.updateBtn) {
@@ -193,6 +204,36 @@ func TestWindowIntegration(t *testing.T) {
 		if code := h.wait(t); code != 0 {
 			t.Errorf("Loop returned %d", code)
 		}
+	})
+
+	// Pressing Privacy would open the tester's browser, so only the layout is
+	// checked: both buttons on the Activity row, Privacy left of Licenses, and
+	// Privacy in Licenses' place when a developer build has no license texts.
+	t.Run("the Privacy button sits beside Licenses without covering it", func(t *testing.T) {
+		const page = "https://example.invalid/PRIVACY.md"
+		h := openWindowWith(t, Options{Licenses: "texts\r\n", PrivacyURL: page})
+		if h.win.privacyBtn == 0 || !visible(h.win.privacyBtn) {
+			t.Fatal("no Privacy button although a privacy page was given")
+		}
+		if got := h.text(h.win.privacyBtn); got != "Privacy" {
+			t.Errorf("the Privacy button says %q", got)
+		}
+		p, l := windowRect(h.win.privacyBtn), windowRect(h.win.licensesBtn)
+		if p.right > l.left || p.top != l.top {
+			t.Errorf("Privacy %+v and Licenses %+v overlap or are not on one row", p, l)
+		}
+		h.win.Done(0)
+		h.wait(t)
+
+		alone := openWindowWith(t, Options{PrivacyURL: page})
+		if alone.win.licensesBtn != 0 || alone.win.privacyBtn == 0 {
+			t.Fatal("want a Privacy button and no Licenses button")
+		}
+		if got, want := windowRect(alone.win.privacyBtn).right, l.right; got != want {
+			t.Errorf("without Licenses, Privacy ends at x=%d, want %d (the row's right end)", got, want)
+		}
+		alone.win.Done(0)
+		alone.wait(t)
 	})
 
 	t.Run("the licenses window is its own: closing it leaves the agent running", func(t *testing.T) {

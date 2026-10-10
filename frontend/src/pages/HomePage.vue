@@ -14,7 +14,7 @@ import { isHostOnline, isHostStaleForGc } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
 import { isNewerVersion } from '@/utils/version'
 import { RouteName } from '@/constants/routes'
-import { GITHUB_URL } from '@/constants/links'
+import { GITHUB_URL, PRIVACY_URL } from '@/constants/links'
 import {
   PAIRING_CODE_LENGTH,
   formatPairingCode,
@@ -398,6 +398,8 @@ const features: Feature[] = [
             <p class="fd-hint mt-2 mb-0">
               <AppIcon name="github" :size="14" /> Open source, MIT licensed.
               <a :href="GITHUB_URL" target="_blank" rel="noopener">Read the code on GitHub</a>.
+              What it sends, and where:
+              <a :href="PRIVACY_URL" target="_blank" rel="noopener">Privacy</a>.
               The build isn't signed yet, so your browser and Windows may warn. Keep the file,
               then choose <strong>More info → Run anyway</strong>, or check the SHA-256 on the
               release page.

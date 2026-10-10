@@ -16,8 +16,10 @@ name: Release
 #
 # The "Check the API key" step refuses to build with a key that rejects a
 # request without a referrer, so a broken exe is never published. The exe is
-# signed only when the CODESIGN_* secrets exist; until then the step is
-# skipped and Windows shows "Unknown publisher" on first run.
+# signed by SignPath only when the SIGNPATH_API_TOKEN secret exists; until
+# then those steps are skipped and Windows shows "Unknown publisher" on first
+# run. A tag with a hyphen (v1.2.3-rc1) is published as a pre-release, which
+# the web page's Download button and the program's update check never offer.
 
 on:
   push:
@@ -27,6 +29,7 @@ permissions:
   contents: write # publish the release
   id-token: write # sign the provenance attestation
   attestations: write
+  actions: read # SignPath reads this run and downloads its unsigned artifact
 
 env:
   # The asset name; frontend/src/constants/links.ts looks for exactly this.
@@ -40,15 +43,17 @@ jobs:
       AGENT_API_KEY: ${{ vars.FIREBASE_AGENT_API_KEY || vars.FIREBASE_API_KEY }}
       FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
       FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
-      # "true" once a code-signing certificate is configured. The secrets
-      # themselves are handed to the signing step only.
-      HAS_CODESIGN: ${{ secrets.CODESIGN_PFX_BASE64 != '' }}
+      # "true" once SignPath signs for this repository (docs/RELEASING.md).
+      # The token itself is handed to the signing step only.
+      HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: host-agent/go.mod
-          cache-dependency-path: host-agent/go.sum
+          # A release is built from nothing but the tagged source and go.sum:
+          # no module or build cache restored from an earlier run.
+          cache: false
 
       - name: Check Firebase variables
         shell: pwsh
@@ -131,6 +136,7 @@ jobs:
         run: bash scripts/build-libvpx.sh
 
       - name: Build host agent
+        id: build
         shell: pwsh
         working-directory: host-agent
         env:
@@ -181,29 +187,69 @@ jobs:
           # broken exe is never signed or published.
           go run ./cmd/importcheck -licenses internal/licenses/generated/LICENSES.txt ../dist/freedesk.exe
           if ($LASTEXITCODE -ne 0) { throw "freedesk.exe failed the import check" }
+          # The version the signing request declares (SignPath's artifact
+          # configuration holds the exe to it).
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
 
-      # Authenticode signature, only once a certificate is configured
-      # (docs/RELEASING.md). Until then the exe ships unsigned.
-      - name: Sign the executable
-        if: env.HAS_CODESIGN == 'true'
+      # Authenticode signature by SignPath Foundation, only once this
+      # repository is enrolled (docs/RELEASING.md); until then the exe ships
+      # unsigned. SignPath takes the exe from this run's artifacts, checks that
+      # this workflow built it on GitHub's runners, scans it, and waits for a
+      # person to approve the release on signpath.io. The signed file comes
+      # back under the same name.
+      - name: Upload the unsigned executable for signing
+        id: unsigned
+        if: env.HAS_SIGNPATH == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: dist/freedesk.exe
+          # The exe itself, not a zip of it: the artifact configuration's root
+          # is the <pe-file>.
+          archive: false
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign the executable (SignPath)
+        if: env.HAS_SIGNPATH == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'freedesk' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.build.outputs.version) }}
+          wait-for-completion: true
+          # The approval is a person on signpath.io: give them an hour.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist/signed
+          skip-decompress: true
+
+      # The signed exe replaces the unsigned one only after it proves to be a
+      # valid, timestamped signature by SignPath Foundation on the program
+      # that was built and checked above.
+      - name: Check the signature
+        if: env.HAS_SIGNPATH == 'true'
         shell: pwsh
-        env:
-          CODESIGN_PFX_BASE64: ${{ secrets.CODESIGN_PFX_BASE64 }}
-          CODESIGN_PFX_PASSWORD: ${{ secrets.CODESIGN_PFX_PASSWORD }}
+        working-directory: host-agent
         run: |
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
-            Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $signtool) { throw "signtool.exe not found on this runner" }
-          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CODESIGN_PFX_BASE64))
-          try {
-            & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /d "FreeDesk" /f $pfx /p $env:CODESIGN_PFX_PASSWORD dist/freedesk.exe
-            if ($LASTEXITCODE -ne 0) { throw "signtool sign failed" }
-            & $signtool.FullName verify /pa /v dist/freedesk.exe
-            if ($LASTEXITCODE -ne 0) { throw "signtool verify failed" }
-          } finally {
-            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
-          }
+          $signed = "../dist/signed/freedesk.exe"
+          if (-not (Test-Path $signed)) { throw "SignPath returned no freedesk.exe" }
+          $sig = Get-AuthenticodeSignature $signed
+          $sig | Format-List Status, StatusMessage, SignerCertificate, TimeStamperCertificate
+          if ($sig.Status -ne "Valid") { throw "the signature is not valid: $($sig.StatusMessage)" }
+          if ($sig.SignerCertificate.Subject -notmatch "CN=SignPath Foundation") { throw "signed by '$($sig.SignerCertificate.Subject)', expected SignPath Foundation" }
+          # Without a timestamp the signature would die with the certificate.
+          if (-not $sig.TimeStamperCertificate) { throw "the signature has no timestamp" }
+          $version = "${{ steps.build.outputs.version }}"
+          $info = (Get-Item $signed).VersionInfo
+          if ($info.FileDescription -ne "FreeDesk" -or $info.ProductVersion -ne $version) { throw "the signed exe reports '$($info.FileDescription)' '$($info.ProductVersion)', expected 'FreeDesk' '$version'" }
+          go run ./cmd/importcheck -licenses internal/licenses/generated/LICENSES.txt $signed
+          if ($LASTEXITCODE -ne 0) { throw "the signed freedesk.exe failed the import check" }
+          "unsigned SHA-256: $((Get-FileHash ../dist/freedesk.exe).Hash)"
+          Move-Item -Force $signed ../dist/freedesk.exe
+          Remove-Item -Recurse ../dist/signed
 
       # After signing, which rewrites the file: the checksum and the
       # attestation must describe the bytes that are published. The checksum
@@ -225,6 +271,19 @@ jobs:
         with:
           subject-path: dist/${{ env.ASSET_NAME }}
 
+      # What the release page says about the signature follows the file that
+      # is published, not the configuration.
+      - name: Describe the signature
+        shell: pwsh
+        run: |
+          if ((Get-AuthenticodeSignature dist/freedesk.exe).Status -eq "Valid") {
+            $note = "Signed by SignPath Foundation ([Code signing policy](${{ github.server_url }}/${{ github.repository }}#code-signing-policy)). A new release can still meet a SmartScreen warning until it has earned reputation: then choose **More info → Run anyway**."
+          } else {
+            $note = "The program is not code-signed yet, so your browser may ask whether to keep the download, and Windows may say *Unknown publisher* the first time: choose **More info → Run anyway**."
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "SIGNATURE_NOTE=$note"
+          $note
+
       # The two files are uploaded under their own names: freedesk.exe, the
       # whole program, and its checksum. The text below goes above the
       # generated notes: how to run the exe, check it and update it.
@@ -234,10 +293,14 @@ jobs:
           files: |
             dist/${{ env.ASSET_NAME }}
             dist/${{ env.ASSET_NAME }}.sha256
+          # v1.2.3-rc1 and the like: published, but never "latest".
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             **Download `freedesk.exe` and run it.** It is the whole program: nothing to install or unpack. Windows 10/11.
 
-            The program is not code-signed yet, so your browser may ask whether to keep the download, and Windows may say *Unknown publisher* the first time: choose **More info → Run anyway**. To check the file, compare its SHA-256 with `freedesk.exe.sha256` (`Get-FileHash freedesk.exe`), or run `gh attestation verify freedesk.exe --repo ${{ github.repository }}`.
+            ${{ env.SIGNATURE_NOTE }} To check the file, compare its SHA-256 with `freedesk.exe.sha256` (`Get-FileHash freedesk.exe`), or run `gh attestation verify freedesk.exe --repo ${{ github.repository }}`.
 
             **Updating:** close FreeDesk, then put the new `freedesk.exe` in place of the old one, same folder and same name (rename it if your browser saved it as `freedesk (1).exe`), so Windows keeps the network permission it gave. The licenses of the code built into the program are in it: the **Licenses** button in its window.
+
+            **Privacy:** what the program sends, where, and for how long: [PRIVACY.md](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/PRIVACY.md), also behind the **Privacy** button in its window.
           generate_release_notes: true

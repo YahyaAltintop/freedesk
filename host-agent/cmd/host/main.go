@@ -105,7 +105,7 @@ func main() {
 	var win ui.Window
 	if cfgErr != nil || cfg.ApprovalMode != consent.ModeConsole {
 		licenseTexts, _ := licenses.Text() // none in a developer build: no button
-		w, err := ui.Open(ui.Options{Title: "FreeDesk", OnClose: cancel, Licenses: licenseTexts})
+		w, err := ui.Open(ui.Options{Title: "FreeDesk", OnClose: cancel, Licenses: licenseTexts, PrivacyURL: config.PrivacyURL()})
 		if err != nil {
 			log.Printf("[host-agent] no status window (%v); using the console", err)
 		} else {

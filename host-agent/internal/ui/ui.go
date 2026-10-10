@@ -26,6 +26,10 @@ type Options struct {
 	// of the code built into the exe, with Windows line endings. Empty means
 	// no button (a developer build without generated license texts).
 	Licenses string
+	// PrivacyURL is the page the Privacy button opens in the browser: what the
+	// program sends, where, and for how long. The caller builds it from its
+	// configuration; it never comes from the network. Empty means no button.
+	PrivacyURL string
 }
 
 // Window is the status window. Every method except Loop may be called from

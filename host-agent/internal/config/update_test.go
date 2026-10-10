@@ -36,6 +36,21 @@ func TestUpdateCheckIsOnUnlessTurnedOff(t *testing.T) {
 	}
 }
 
+func TestPrivacyURLFollowsTheBuild(t *testing.T) {
+	saved := BuildRepo
+	t.Cleanup(func() { BuildRepo = saved })
+	for _, c := range []struct{ build, want string }{
+		{"", "https://github.com/" + defaultRepo + "/blob/main/PRIVACY.md"},
+		{"someone/fork", "https://github.com/someone/fork/blob/main/PRIVACY.md"},
+		{"../x", "https://github.com/" + defaultRepo + "/blob/main/PRIVACY.md"},
+	} {
+		BuildRepo = c.build
+		if got := PrivacyURL(); got != c.want {
+			t.Errorf("BuildRepo=%q: PrivacyURL() = %q, want %q", c.build, got, c.want)
+		}
+	}
+}
+
 func TestUpdateSettingsAreValidated(t *testing.T) {
 	minimal(t)
 	t.Setenv("RC_UPDATE_CHECK", "maybe")

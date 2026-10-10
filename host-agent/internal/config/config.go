@@ -44,6 +44,18 @@ const defaultRepo = "YahyaAltintop/freedesk"
 // click, so it is checked rather than trusted.
 var repoPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/\.?[A-Za-z0-9_-][A-Za-z0-9_.-]*$`)
 
+// PrivacyURL is the page that says what the program sends where: PRIVACY.md
+// in the repository that built it (BuildRepo), whose Firebase project it
+// talks to, or FreeDesk's own in a developer build. It needs no Load, so the
+// window can offer it even when the configuration is broken.
+func PrivacyURL() string {
+	repo := BuildRepo
+	if !repoPattern.MatchString(repo) {
+		repo = defaultRepo
+	}
+	return "https://github.com/" + repo + "/blob/main/PRIVACY.md"
+}
+
 // Config holds all runtime configuration for the host agent.
 type Config struct {
 	APIKey            string
