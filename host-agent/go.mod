@@ -9,7 +9,7 @@ require (
 	github.com/pion/interceptor v0.1.49
 	github.com/pion/rtcp v1.2.17
 	github.com/pion/webrtc/v4 v4.2.20
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
