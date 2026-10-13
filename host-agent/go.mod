@@ -7,7 +7,7 @@ toolchain go1.26.9
 require (
 	github.com/pion/ice/v4 v4.4.2
 	github.com/pion/interceptor v0.1.49
-	github.com/pion/rtcp v1.2.17
+	github.com/pion/rtcp v1.2.19
 	github.com/pion/webrtc/v4 v4.2.20
 	golang.org/x/sys v0.48.0
 )
