@@ -21,6 +21,8 @@ FreeDesk has no accounts, no analytics, no ads and no server of its own. This pa
 
 **On your own computer.** The web page asks `freedesk.exe` on the same computer (`127.0.0.1:47800`) for its code, so it can show it to you. That request never leaves the computer, and other websites open in your browser cannot read the answer.
 
+To tell you when Windows' firewall would keep the other computer out, `freedesk.exe` also reads, and never changes, the firewall's settings and rules, the kind of network you are connected to (private, public or domain) and which security product, if any, runs the firewall in Windows' place. None of it leaves the computer: the product's name appears only in the program's window, when a connection fails.
+
 ## What is kept, and for how long
 
 - **`freedesk.exe` writes nothing to disk**: no settings and no log file. The Activity pane in its window is the only log, and it disappears when the window closes. The only files it writes are files the other side sends you, after you accept them.

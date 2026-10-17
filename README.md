@@ -16,6 +16,8 @@ A small, free remote desktop: see and control another Windows PC from your brows
 
 > **"Unknown publisher"?** The program is not code-signed yet, so the browser may ask whether to keep the download and Windows warns on first run. Keep it, then choose **More info → Run anyway**. To check what you downloaded, compare its SHA-256 with `freedesk.exe.sha256` on the release page, or run `gh attestation verify freedesk.exe --repo YahyaAltintop/freedesk`.
 
+> **Blocked by antivirus?** Norton, Avast and AVG can block a new release, or its download, before anyone has run it: a verdict on a new, unsigned file's reputation ("FileRepMalware"). Check the file as above and report the detection from your antivirus. Why it happens and what the project does about it: [docs/ANTIVIRUS.md](docs/ANTIVIRUS.md).
+
 Good to know:
 
 - **Updating.** When the window shows a purple **Update to …** button, download the new `freedesk.exe`, close FreeDesk (a running program cannot be replaced), and put the new file in place of the old one: same folder, same name (a browser may have saved it as `freedesk (1).exe`). Network permissions, Windows' or your security software's, belong to that place; anywhere else they start over. The program never updates itself.

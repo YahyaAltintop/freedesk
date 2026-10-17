@@ -57,7 +57,7 @@ Pushing to `main` deploys the viewer (`deploy-web.yml`). The database rules are 
 
 ## Code signing and the "Unknown publisher" warning
 
-The exe is not signed yet. SmartScreen warns on first run ("Windows protected your PC", publisher unknown), and antivirus products that judge new files by reputation can block it outright: Norton quarantined v0.8.0 as a file "very few people have used", and on VirusTotal a dozen engines (Avast, AVG, Symantec, Bitdefender and the products built on it, McAfee's reputation service) flagged it without naming anything specific. The version resource makes Windows say *FreeDesk* in the firewall prompt and in Task Manager, but only an Authenticode signature lets reputation build up from one release to the next, and even a signed program can be warned about until it has earned some.
+The exe is not signed yet. SmartScreen warns on first run ("Windows protected your PC", publisher unknown), and antivirus products that judge new files by reputation can block it outright: Norton quarantined v0.8.0 as a file "very few people have used", and on VirusTotal a dozen engines (Avast, AVG, Symantec, Bitdefender and the products built on it, McAfee's reputation service) flagged it without naming anything specific. Norton then did the same to v0.9.0 and had Safe Web stop its download from GitHub. What users are told: [ANTIVIRUS.md](ANTIVIRUS.md); how each release is reported: [Antivirus false positives](#antivirus-false-positives). The version resource makes Windows say *FreeDesk* in the firewall prompt and in Task Manager, but only an Authenticode signature lets reputation build up from one release to the next, and even a signed program can be warned about until it has earned some.
 
 The plan is the **SignPath Foundation**: free signing for open-source projects, with a certificate issued to *SignPath Foundation*, which is therefore the publisher Windows shows. Their [conditions](https://signpath.org/terms) ask for a project with verifiable reputation, so apply once FreeDesk has some (users, stars, a few months of releases); they decline projects that are too new and there is no appeal. They also scan every file before signing it, so clear any antivirus false positives on the latest release first. Alternatives, if it comes to that: Azure Artifact Signing does not take individuals outside the US and Canada; a Certum *Open Source* certificate names the developer as publisher, but signs interactively, so the SignPath steps would give way to a manual one.
 
@@ -110,6 +110,30 @@ Then try it with a pre-release tag (`v0.9.0-rc1`): approve it on signpath.io, do
 **Every release after that:** push the tag, then approve the signing request on signpath.io within the hour (the job waits; after that it fails, and re-running it asks again).
 
 When the first signed release is out, drop the "not code-signed yet" notes from the README and from the web page's download card (`frontend/src/pages/HomePage.vue`).
+
+## Antivirus false positives
+
+Products that judge files by reputation hold back every new, unsigned release until they have seen enough of it, and Gen Digital's (Norton, Avast, AVG) has called two of them `FileRepMalware` ([ANTIVIRUS.md](ANTIVIRUS.md)). A verdict belongs to one file, so every release starts from zero. Report each one right after the workflow publishes it, before announcing it:
+
+1. **Gen Digital.** Once the project is in Avast's whitelisting program (register at https://www.avast.com/whitelist-program-registration; the form says its files count for Avast, AVG, Norton and Avira), upload the release's `freedesk.exe`, zipped, to the program's SFTP server: it is processed within a day, without a reply. Download it for that on a computer without Norton, Avast or AVG: on one with them the new file is held for their own verdict, and may be quarantined, before the upload has been processed, and Safe Web may stop the download altogether. (With the SFTP credentials stored as a secret, the release workflow could upload it itself.) Until then, and for a release that is flagged anyway, use Norton's form, https://submissions.norton.com/reportfalsepositive, once on the File tab and once on the URL tab with the asset's download link, and Avast's, https://www.avast.com/report-false-positive. The detection name is the one the product shows (`FileRepMalware [Misc]` so far); the form gives no receipt, so note the date.
+2. **VirusTotal.** Let it scan the asset's download link (https://www.virustotal.com/gui/home/url), then report the release to each vendor that flags it: Symantec at https://symsubmit.symantec.com/false_positive, Bitdefender at https://www.bitdefender.com/consumer/support/answer/29358/ (the products built on its engine follow it), the others through the contacts VirusTotal lists ([docs.virustotal.com/docs/false-positive](https://docs.virustotal.com/docs/false-positive)). Microsoft only if Defender flags it.
+3. **Log** each report in the table at the end of [ANTIVIRUS.md](ANTIVIRUS.md#what-the-project-does).
+
+Never rebuild or re-release only to get a new hash, pack or obfuscate the exe, or host it somewhere else: the verdict follows the file, and a new hash starts from zero again.
+
+The description every form asks for, with the version and the hash filled in:
+
+```text
+FreeDesk X.Y.Z (freedesk.exe) is an open-source (MIT) remote desktop host for Windows.
+Source: https://github.com/YahyaAltintop/freedesk
+Built only by the public GitHub Actions workflow .github/workflows/release.yml from tag vX.Y.Z.
+Build provenance: gh attestation verify freedesk.exe --repo YahyaAltintop/freedesk
+SHA-256: <the line in freedesk.exe.sha256 on the release page>
+It shows the computer's screen to one viewer and applies their mouse and keyboard input only
+after the person at the computer clicks Yes in a consent window. Direct WebRTC connection,
+paired through Firebase. No installer, service, autostart, elevation, packing or obfuscation.
+Privacy policy: https://github.com/YahyaAltintop/freedesk/blob/main/PRIVACY.md
+```
 
 ## Updating libvpx
 

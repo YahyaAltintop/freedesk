@@ -69,8 +69,9 @@ const (
 	shutdownTimeout     = 4 * time.Second
 	registerAttempts    = 3
 
-	// firewallCheckTimeout bounds the PowerShell query behind the firewall
-	// warning; a machine where that takes longer simply gets no warning.
+	// firewallCheckTimeout bounds the questions to Windows behind the
+	// firewall warning. They take milliseconds; a machine where they hang
+	// simply gets no warning.
 	// firewallRecheck is how often the question is asked again while the
 	// answer keeps viewers out, so the warning clears once the operator
 	// has clicked Allow.
@@ -341,9 +342,9 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 // nobody thinks of, because the program looks healthy in every other way and
 // a viewer only sees "could not connect". The question Windows asks at
 // start-up is easy to miss or to cancel, and an old allow rule may cover the
-// wrong kind of network. The check runs PowerShell, so it takes a few seconds
-// and happens in the background; while the answer is bad it is asked again
-// now and then, so the warning clears once Allow has been clicked.
+// wrong kind of network. The check happens in the background; while the
+// answer is bad it is asked again now and then, so the warning clears once
+// Allow has been clicked.
 //
 // When a security product (Norton, Kaspersky, …) has taken the firewall over,
 // Windows' rules are not enforced and Windows never asks, so they are no

@@ -300,6 +300,8 @@ jobs:
 
             ${{ env.SIGNATURE_NOTE }} To check the file, compare its SHA-256 with `freedesk.exe.sha256` (`Get-FileHash freedesk.exe`), or run `gh attestation verify freedesk.exe --repo ${{ github.repository }}`.
 
+            **Blocked by antivirus?** Norton, Avast and AVG can block a new release, or its download, before anyone has run it: a verdict on a new, unsigned file's reputation. Check the file as above and report the detection from your antivirus: [why it happens](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/docs/ANTIVIRUS.md).
+
             **Updating:** close FreeDesk, then put the new `freedesk.exe` in place of the old one, same folder and same name (rename it if your browser saved it as `freedesk (1).exe`), so Windows keeps the network permission it gave. The licenses of the code built into the program are in it: the **Licenses** button in its window.
 
             **Privacy:** what the program sends, where, and for how long: [PRIVACY.md](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/PRIVACY.md), also behind the **Privacy** button in its window.
