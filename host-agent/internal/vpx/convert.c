@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && (windows || darwin)
 
 /*
  * BGRA -> I420 conversion and area-averaging downscale, in portable C.

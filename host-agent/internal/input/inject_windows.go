@@ -126,17 +126,6 @@ func send(in *rawInput) {
 	}
 }
 
-func clamp01(v float64) float64 {
-	switch {
-	case v < 0:
-		return 0
-	case v > 1:
-		return 1
-	default:
-		return v
-	}
-}
-
 func pick(cond bool, a, b uint32) uint32 {
 	if cond {
 		return a

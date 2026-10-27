@@ -1,8 +1,9 @@
-// Package licenses carries, inside freedesk.exe, the license of FreeDesk and
-// of every piece of other people's code linked into it (libvpx, the MinGW-w64
-// and GCC runtimes, Go and its modules). A release is one file, the exe, so the
-// texts those licenses ask to accompany a binary travel inside it; the status
-// window's Licenses button and `freedesk.exe --licenses` show them.
+// Package licenses carries, inside the agent, the license of FreeDesk and of
+// every piece of other people's code linked into it (libvpx, Go and its
+// modules, and on Windows the MinGW-w64 and GCC runtimes). A release is one
+// file, freedesk.exe or FreeDesk.app, so the texts those licenses ask to
+// accompany a binary travel inside it; the status window's Licenses button and
+// `freedesk.exe --licenses` show them.
 //
 // The text is generated, not written by hand: cmd/notices gathers it from the
 // build's own dependencies,

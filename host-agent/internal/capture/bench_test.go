@@ -1,3 +1,5 @@
+//go:build windows || (darwin && cgo)
+
 package capture
 
 import (
@@ -10,13 +12,12 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"golang.org/x/sys/windows"
 )
 
 // TestCaptureBench measures the capture on the real screen: CPU, frame rate,
 // bitrate, keyframe sizes and the time from a tick to its encoded frame. It
-// needs an interactive desktop, so it runs only when asked:
+// needs an interactive desktop (and on macOS the Screen Recording
+// permission), so it runs only when asked:
 //
 //	RC_CAPTURE_BENCH=1 RC_BENCH_LABEL=video go test -run CaptureBench -v ./internal/capture/
 //
@@ -56,15 +57,6 @@ type benchResult struct {
 	NewImages int     `json:"new_images"` // frames that carried a new picture
 	WorkP50ms float64 `json:"work_p50_ms"`
 	WorkP95ms float64 `json:"work_p95_ms"`
-}
-
-func processCPU(t *testing.T) time.Duration {
-	t.Helper()
-	var c, e, k, u windows.Filetime
-	if err := windows.GetProcessTimes(windows.CurrentProcess(), &c, &e, &k, &u); err != nil {
-		t.Fatal(err)
-	}
-	return time.Duration(k.Nanoseconds() + u.Nanoseconds())
 }
 
 func benchCapture(t *testing.T, label string, d time.Duration) benchResult {

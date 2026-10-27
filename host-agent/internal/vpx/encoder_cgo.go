@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && (windows || darwin)
 
 package vpx
 
@@ -7,7 +7,14 @@ package vpx
 // -static links libgcc and the winpthreads libvpx needs into the exe instead
 // of leaving them as DLLs (libgcc_s_seh-1.dll, libwinpthread-1.dll) a user's
 // machine does not have. cmd/importcheck verifies the result.
-#cgo LDFLAGS: -L${SRCDIR}/../../third_party/libvpx/lib -lvpx -lm -lpthread -static
+#cgo windows LDFLAGS: -L${SRCDIR}/../../third_party/libvpx/lib -lvpx -lm -lpthread -static
+// macOS cannot link a whole program statically, and need not: libvpx.a is
+// the only libvpx on the search path, so it still goes into the binary, and
+// what it takes from the system (maths, threads) is in libSystem, which every
+// macOS program links. The oldest macOS the binary runs on is set for the
+// whole build by MACOSX_DEPLOYMENT_TARGET (scripts/build-libvpx.sh builds the
+// library for the same one).
+#cgo darwin LDFLAGS: -L${SRCDIR}/../../third_party/libvpx/lib -lvpx
 #include "fdvpx.h"
 */
 import "C"

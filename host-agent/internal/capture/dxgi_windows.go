@@ -113,10 +113,6 @@ type d3d11MappedSubresource struct {
 	depthPitch uint32
 }
 
-// errDesktopUnavailable means the desktop cannot be read right now (the lock
-// screen, a UAC prompt, a disconnected session) and is expected back.
-var errDesktopUnavailable = errors.New("the desktop is not readable right now")
-
 // dxgiUnavailable lists the duplication failures that pass by themselves.
 func dxgiUnavailable(err error) bool {
 	return isHRESULT(err, eAccessDenied, dxgiErrorAccessDenied, dxgiErrorAccessLost, dxgiErrorSessionDisconnected)
@@ -284,7 +280,7 @@ func (s *dxgiSource) lose() {
 
 func (s *dxgiSource) name() string { return "DXGI desktop duplication" }
 
-func (s *dxgiSource) current() *dib { return s.frame }
+func (s *dxgiSource) current() *picture { return s.frame.pictureOrNil() }
 
 func (s *dxgiSource) origin() (x, y int) { return 0, 0 }
 
@@ -376,7 +372,7 @@ func (s *dxgiSource) grab() (changed bool, err error) {
 	}
 	src := unsafe.Slice((*byte)(mapped.data), int(mapped.rowPitch)*s.frame.h)
 	dst := s.frame.pixels()
-	row := s.frame.stride()
+	row := s.frame.stride
 	for y := range s.frame.h {
 		copy(dst[y*row:(y+1)*row], src[y*int(mapped.rowPitch):])
 	}

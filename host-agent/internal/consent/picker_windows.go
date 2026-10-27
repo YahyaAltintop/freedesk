@@ -7,8 +7,6 @@ import (
 	"log"
 	"path/filepath"
 	"runtime"
-	"sync"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -65,10 +63,7 @@ type openFileNameW struct {
 }
 
 // nativePicker shows the Windows "Open" dialog.
-type nativePicker struct {
-	mu       sync.Mutex
-	lastShow time.Time
-}
+type nativePicker struct{ pickerGate }
 
 func newPlatformPicker() FilePicker { return &nativePicker{} }
 
@@ -92,18 +87,6 @@ func (p *nativePicker) Pick(ctx context.Context) ([]string, bool) {
 		paths, ok = p.show(ctx)
 	})
 	return paths, ok
-}
-
-// claim enforces one picker at a time plus a cooldown between them.
-func (p *nativePicker) claim() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if time.Since(p.lastShow) < pickerCooldown {
-		log.Printf("[consent] ignoring a file picker request: too soon after the last one")
-		return false
-	}
-	p.lastShow = time.Now()
-	return true
 }
 
 func (p *nativePicker) show(ctx context.Context) ([]string, bool) {

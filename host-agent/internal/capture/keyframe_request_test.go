@@ -15,10 +15,7 @@ func TestKeyframeOnRequest(t *testing.T) {
 	if !vpx.Available() {
 		t.Skip("no encoder in this build")
 	}
-	frame, err := newDIB(320, 200)
-	if err != nil {
-		t.Fatal(err)
-	}
+	frame := newTestPicture(320, 200)
 	newTestSource = func() (source, error) { return &stillSource{frame: frame}, nil }
 	defer func() { newTestSource = nil }()
 

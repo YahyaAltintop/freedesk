@@ -10,6 +10,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// Supported: this build shares the clipboard.
+const Supported = true
+
+// pasteShortcut is what pastes on this system.
+const pasteShortcut = "Ctrl+V"
+
 const (
 	cfUnicodeText = 13
 	gmemMoveable  = 0x0002

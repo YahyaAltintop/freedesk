@@ -1,18 +1,20 @@
-// Command notices writes the license texts freedesk.exe carries: FreeDesk's
-// own license, then the license of every piece of other people's code linked
+// Command notices writes the license texts the agent carries: FreeDesk's own
+// license, then the license of every piece of other people's code linked
 // into it, taken from where the build got it, so the text cannot fall behind
 // the dependencies. That is the Go modules and the Go standard library,
-// libvpx, and the parts of the MinGW-w64 and GCC runtimes the -static link
-// puts in the exe.
+// libvpx, and on Windows the parts of the MinGW-w64 and GCC runtimes the
+// -static link puts in the exe. A macOS build links its C runtime from the
+// system (libSystem) instead, so it carries nothing of that kind.
 //
-// The release is a single exe, so the text is embedded into it
-// (internal/licenses), which means it is written before the build:
+// The release is a single file (freedesk.exe, or FreeDesk.app on macOS), so
+// the text is embedded into it (internal/licenses), which means it is written
+// before the build, for the platform being built (go env GOOS):
 //
 //	go run ./cmd/notices -o internal/licenses/generated/LICENSES.txt
 //
-// It needs the build's environment: CC naming MSYS2's UCRT64 gcc (its
-// installation holds the runtime licenses) and libvpx built into
-// third_party/libvpx by scripts/build-libvpx.sh.
+// It needs the build's environment: libvpx built into third_party/libvpx by
+// scripts/build-libvpx.sh, and on Windows CC naming MSYS2's UCRT64 gcc (its
+// installation holds the runtime licenses).
 package main
 
 import (
@@ -60,6 +62,10 @@ func build() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	goos, err := goOutput("env", "GOOS")
+	if err != nil {
+		return "", err
+	}
 	var sections []section
 
 	own, err := freedeskSection(root, modulePath)
@@ -74,11 +80,13 @@ func build() (string, error) {
 	}
 	sections = append(sections, vpx)
 
-	runtime, err := mingwSections()
-	if err != nil {
-		return "", err
+	if goos == "windows" {
+		runtime, err := mingwSections()
+		if err != nil {
+			return "", err
+		}
+		sections = append(sections, runtime...)
 	}
-	sections = append(sections, runtime...)
 
 	goroot, err := goOutput("env", "GOROOT")
 	if err != nil {
@@ -98,16 +106,31 @@ func build() (string, error) {
 
 	var b strings.Builder
 	b.WriteString("FreeDesk - licenses\n\n")
-	b.WriteString("freedesk.exe is FreeDesk, under the MIT license below. It also contains\n")
+	fmt.Fprintf(&b, "%s is FreeDesk, under the MIT license below. It also contains\n", program(goos))
 	b.WriteString("code from the projects after it, each used under its own license,\n")
 	b.WriteString("reproduced here as that license asks.\n")
 	rule := strings.Repeat("=", 78)
 	for _, s := range sections {
 		fmt.Fprintf(&b, "\n%s\n%s\n%s\n%s\n\n%s\n", rule, s.title, s.about, rule, strings.TrimSpace(s.text))
 	}
-	// Notepad-friendly line endings: every license file normalised to CRLF.
+	// Every license file normalised to the platform's line endings: CRLF on
+	// Windows, for the window and for Notepad; LF elsewhere.
 	text := strings.ReplaceAll(b.String(), "\r\n", "\n")
-	return strings.ReplaceAll(text, "\n", "\r\n"), nil
+	if goos == "windows" {
+		text = strings.ReplaceAll(text, "\n", "\r\n")
+	}
+	return text, nil
+}
+
+// program is what the agent's release is called on goos.
+func program(goos string) string {
+	switch goos {
+	case "windows":
+		return "freedesk.exe"
+	case "darwin":
+		return "FreeDesk.app"
+	}
+	return "This program"
 }
 
 // freedeskSection is FreeDesk's own license, from the repository root the

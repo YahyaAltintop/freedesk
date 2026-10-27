@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && (windows || darwin)
 
 package vpx
 
@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 	"unsafe"
-
-	"golang.org/x/sys/windows"
 )
 
 // TestThreadsCost encodes the synthetic desktop in real time (one frame every
@@ -23,13 +21,7 @@ func TestThreadsCost(t *testing.T) {
 	}
 	const w, h, n = 1920, 1080, 240
 	gen := newScreenGen(w, h)
-	cpu := func() time.Duration {
-		var c, e, k, u windows.Filetime
-		if err := windows.GetProcessTimes(windows.CurrentProcess(), &c, &e, &k, &u); err != nil {
-			t.Fatal(err)
-		}
-		return time.Duration(k.Nanoseconds() + u.Nanoseconds())
-	}
+	cpu := func() time.Duration { return processCPU(t) }
 	frame := time.Second / 30
 	for _, threads := range []int{runtime.NumCPU(), 8, 0, 2, 1} {
 		conv := newTestConverter(t, w, h, 1920)

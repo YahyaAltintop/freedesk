@@ -46,7 +46,8 @@ type receiving struct {
 	sizes []int64  // as declared
 
 	// clip marks a batch the viewer pasted: once it is all saved the host puts
-	// it on its own clipboard so the operator can paste it in Explorer.
+	// it on its own clipboard so the operator can paste it in Explorer or the
+	// Finder.
 	clip  bool
 	saved []string // final paths, in order, for that clipboard hand-off
 
@@ -287,7 +288,7 @@ func (s *Session) beginBatch(id string, names []string, sizes []int64, clip bool
 func (s *Session) openLocked() (fail *Msg) {
 	f, path, err := s.dest.Create(s.rx.names[s.rx.index])
 	if err != nil {
-		s.logf("[transfer] could not create %q: %v", s.rx.names[s.rx.index], err)
+		s.logf("[transfer] could not create %q: %v%s", s.rx.names[s.rx.index], err, accessHint(err))
 		reason := ReasonIO
 		if errors.Is(err, ErrBadName) {
 			reason = ReasonBadName

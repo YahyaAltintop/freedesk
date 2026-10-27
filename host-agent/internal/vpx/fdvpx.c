@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && (windows || darwin)
 
 /*
  * The libvpx VP8 encoder, configured from fd_vpx_settings. The settings are

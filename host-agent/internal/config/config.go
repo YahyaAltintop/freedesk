@@ -78,7 +78,7 @@ type Config struct {
 	// leaves it to the capture package's default. A wider monitor is scaled
 	// down, aspect kept.
 	MaxWidth     int
-	ApprovalMode string // "dialog" (Windows default) or "console"
+	ApprovalMode string // "dialog" (the default; asked on the console where there is no dialog) or "console"
 	// ClipboardMode is "text" (share clipboard text with the viewer, the
 	// default) or "off". Off is a real switch, not a hint: the capability is
 	// never advertised and nothing ever reads the clipboard.
@@ -192,9 +192,9 @@ func Load(envFilePath string) (*Config, error) {
 
 	if cfg.HostName == "" {
 		if name, err := os.Hostname(); err == nil && name != "" {
-			cfg.HostName = name
+			cfg.HostName = shortHostName(name)
 		} else {
-			cfg.HostName = "Windows Host"
+			cfg.HostName = fallbackHostName()
 		}
 	}
 	// The host record's name field is validated to at most 64 characters.

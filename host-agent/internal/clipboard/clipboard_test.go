@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows || (darwin && cgo)
 
 package clipboard
 
@@ -21,22 +21,41 @@ func onThread(t *testing.T, fn func(b Board)) {
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
+		// fn may end this goroutine itself, with t.Fatal or t.Skip; the test
+		// still has to hear that it is over, or it waits for ever.
+		finished := false
+		defer func() {
+			if !finished {
+				done <- errEndedByTest
+			}
+		}()
 		b, err := New()
 		if err != nil {
+			finished = true
 			done <- err
 			return
 		}
 		defer b.Close()
 		fn(b)
+		finished = true
 		done <- nil
 	}()
-	if err := <-done; err != nil {
-		if errors.Is(err, ErrBusy) {
-			t.Skip("another process is holding the clipboard")
+	switch err := <-done; {
+	case err == nil:
+	case errors.Is(err, errEndedByTest):
+		if t.Skipped() {
+			t.SkipNow()
 		}
+		t.FailNow()
+	case errors.Is(err, ErrBusy):
+		t.Skip("another process is holding the clipboard")
+	default:
 		t.Fatalf("could not open the clipboard: %v", err)
 	}
 }
+
+// errEndedByTest: the test failed or skipped from inside onThread's fn.
+var errEndedByTest = errors.New("the test ended itself")
 
 // The write path is the one that silently fails without a real window, so this
 // is the test that matters most.
@@ -115,8 +134,8 @@ func TestOrdinaryTextIsNotExcluded(t *testing.T) {
 }
 
 // CF_HDROP is what Explorer puts on the clipboard when you copy a file, and
-// what it reads when you paste one. Getting the DROPFILES header wrong shows up
-// as "paste does nothing", so both directions are checked here.
+// what it reads when you paste one; file URLs are the Finder's. Getting either
+// wrong shows up as "paste does nothing", so both directions are checked here.
 func TestFilesRoundTripThroughTheClipboard(t *testing.T) {
 	dir := t.TempDir()
 	var want []string

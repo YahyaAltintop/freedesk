@@ -73,7 +73,7 @@ func (s *Session) requested(id string) {
 }
 
 // OfferFiles offers files the host already has — what the operator copied in
-// Explorer, for instance. Nothing is read until the viewer accepts, so this
+// Explorer or the Finder, for instance. Nothing is read until the viewer accepts, so this
 // tells it only what is on offer.
 func (s *Session) OfferFiles(id string, paths []string) {
 	if len(paths) == 0 || !s.claimSend(id) {

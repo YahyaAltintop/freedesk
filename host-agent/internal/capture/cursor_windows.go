@@ -47,7 +47,7 @@ type cursorPainter struct {
 	cw, ch     int
 	anim       animatedCursor
 
-	frame *dib         // the bitmap the rest of this describes
+	frame *picture     // the bitmap the rest of this describes
 	last  pointerState // what the frame shows, once valid
 	valid bool
 	drawn bool // the pointer is in the frame (not hidden, not off-monitor)
@@ -69,7 +69,7 @@ type pointerState struct {
 // already gone). It reports whether it changed the frame: a pointer that is
 // hidden or on another monitor leaves it as it is, whatever the pointer
 // does.
-func (p *cursorPainter) paint(frame *dib, originX, originY int, fresh bool, now time.Time) bool {
+func (p *cursorPainter) paint(frame *picture, originX, originY int, fresh bool, now time.Time) bool {
 	if frame != p.frame {
 		// Another bitmap (the source replaced its frame after a mode
 		// change): what was drawn, and the rectangle saved from under it,
@@ -176,7 +176,7 @@ func (p *cursorPainter) measure(handle uintptr) {
 // reports whether it did: a pointer on another monitor is not in the frame.
 // The frames of an animated cursor share its size and hotspot, so the cursor
 // is measured once.
-func (p *cursorPainter) draw(frame *dib, handle uintptr, step, x, y int) bool {
+func (p *cursorPainter) draw(frame *picture, handle uintptr, step, x, y int) bool {
 	if handle != p.handle {
 		p.measure(handle)
 	}
@@ -193,24 +193,24 @@ func (p *cursorPainter) draw(frame *dib, handle uintptr, step, x, y int) bool {
 	return true
 }
 
-func (p *cursorPainter) save(frame *dib) {
+func (p *cursorPainter) save(frame *picture) {
 	gdiFlush() // the frame's pixels must be current before reading them
 	row := p.rw * 4
 	if cap(p.under) < row*p.rh {
 		p.under = make([]byte, row*p.rh)
 	}
 	p.under = p.under[:row*p.rh]
-	pix, stride := frame.pixels(), frame.stride()
+	pix, stride := frame.pixels(), frame.stride
 	for i := range p.rh {
 		off := (p.ry+i)*stride + p.rx*4
 		copy(p.under[i*row:(i+1)*row], pix[off:off+row])
 	}
 }
 
-func (p *cursorPainter) restore(frame *dib) {
+func (p *cursorPainter) restore(frame *picture) {
 	gdiFlush()
 	row := p.rw * 4
-	pix, stride := frame.pixels(), frame.stride()
+	pix, stride := frame.pixels(), frame.stride
 	for i := range p.rh {
 		off := (p.ry+i)*stride + p.rx*4
 		copy(pix[off:off+row], p.under[i*row:(i+1)*row])

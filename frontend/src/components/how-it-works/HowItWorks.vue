@@ -25,8 +25,8 @@ interface Step {
 
 const STEPS: readonly Step[] = [
   {
-    title: 'Run freedesk.exe',
-    text: 'On the PC to share. One file, no install. It shows a 6-digit code.',
+    title: 'Run FreeDesk',
+    text: 'On the computer to share. No install. It shows a 6-digit code.',
     scene: SceneRunHost,
     ms: 7000,
   },

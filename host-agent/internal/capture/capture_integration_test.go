@@ -1,3 +1,5 @@
+//go:build windows || (darwin && cgo)
+
 package capture
 
 import (
@@ -9,8 +11,6 @@ import (
 	"strconv"
 	"testing"
 	"time"
-
-	"golang.org/x/sys/windows"
 
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/diag"
 )
@@ -43,28 +43,10 @@ func writeIVF(t *testing.T, path string, w, h int, frames []Frame) {
 	}
 }
 
-// useGDIIfAsked makes the capture skip desktop duplication when
-// RC_CAPTURE_FORCE_GDI is set, to exercise the GDI fallback.
-func useGDIIfAsked(t *testing.T) {
-	if os.Getenv("RC_CAPTURE_FORCE_GDI") == "" {
-		return
-	}
-	skipDuplication = true
-	t.Cleanup(func() { skipDuplication = false })
-	t.Log("desktop duplication skipped: capturing with GDI")
-}
-
-// vp8Size reads the size out of a VP8 keyframe header; ok is false for an
-// interframe.
-func vp8Size(data []byte) (w, h int, ok bool) {
-	if len(data) < 10 || data[0]&1 == 1 || !bytes.Equal(data[3:6], []byte{0x9d, 0x01, 0x2a}) {
-		return 0, 0, false
-	}
-	return int(binary.LittleEndian.Uint16(data[6:8]) & 0x3fff), int(binary.LittleEndian.Uint16(data[8:10]) & 0x3fff), true
-}
-
 // TestScreenCaptureIntegration captures the real screen for a few seconds.
-// It needs an interactive desktop, so it runs only when asked:
+// It needs an interactive desktop, and on macOS the Screen Recording
+// permission for the program it runs from (the terminal), so it runs only
+// when asked:
 //
 //	RC_CAPTURE_INTEGRATION=1 go test -run ScreenCaptureIntegration -v ./internal/capture/
 //
@@ -111,11 +93,12 @@ func TestScreenCaptureIntegration(t *testing.T) {
 	}
 }
 
-// TestScreenCapturePause watches the capture while someone brings up the
-// secure desktop (a UAC prompt, or Win+L) and dismisses it: while it is up no
-// frames should go out and the capture should cost next to no CPU; afterwards
-// frames resume, starting with a keyframe. It ends on its own a few seconds
-// after the first full pause/resume, or after RC_CAPTURE_PAUSE_TEST minutes.
+// TestScreenCapturePause watches the capture while someone locks the screen
+// and unlocks it again (Win+L or a UAC prompt on Windows, Ctrl+Cmd+Q on a
+// Mac): while it is locked no frames should go out and the capture should cost
+// next to no CPU; afterwards frames resume, starting with a keyframe. It ends
+// on its own a few seconds after the first full pause/resume, or after
+// RC_CAPTURE_PAUSE_TEST minutes.
 //
 //	RC_CAPTURE_PAUSE_TEST=10 go test -run ScreenCapturePause -v -timeout 15m ./internal/capture/
 func TestScreenCapturePause(t *testing.T) {
@@ -131,13 +114,7 @@ func TestScreenCapturePause(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	cpu := func() time.Duration {
-		var c, e, k, u windows.Filetime
-		if err := windows.GetProcessTimes(windows.CurrentProcess(), &c, &e, &k, &u); err != nil {
-			t.Fatal(err)
-		}
-		return time.Duration(k.Nanoseconds() + u.Nanoseconds())
-	}
+	cpu := func() time.Duration { return processCPU(t) }
 	second := time.NewTicker(time.Second)
 	defer second.Stop()
 	var (

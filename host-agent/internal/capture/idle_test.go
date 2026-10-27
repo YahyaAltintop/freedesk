@@ -11,7 +11,7 @@ import (
 // stillSource is a source whose picture never changes after the first grab,
 // placed far from any monitor so the real pointer is never drawn into it.
 type stillSource struct {
-	frame *dib
+	frame *picture
 	grabs int
 }
 
@@ -20,9 +20,9 @@ func (s *stillSource) grab() (bool, error) {
 	s.grabs++
 	return s.grabs == 1, nil
 }
-func (s *stillSource) current() *dib      { return s.frame }
+func (s *stillSource) current() *picture  { return s.frame }
 func (s *stillSource) origin() (int, int) { return 1 << 20, 1 << 20 }
-func (s *stillSource) close()             { s.frame.close() }
+func (s *stillSource) close()             {}
 
 // TestStillScreenIsEncodedAtIdleRate: with nothing changing, the encoder
 // must repeat the picture about every idleInterval, not on every tick, and
@@ -31,10 +31,7 @@ func TestStillScreenIsEncodedAtIdleRate(t *testing.T) {
 	if !vpx.Available() {
 		t.Skip("no encoder in this build")
 	}
-	frame, err := newDIB(320, 200)
-	if err != nil {
-		t.Fatal(err)
-	}
+	frame := newTestPicture(320, 200)
 	newTestSource = func() (source, error) { return &stillSource{frame: frame}, nil }
 	defer func() { newTestSource = nil }()
 

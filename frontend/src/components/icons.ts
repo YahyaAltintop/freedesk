@@ -34,6 +34,9 @@ export const ICON_PATHS = {
   minus: '<line x1="5" y1="12" x2="19" y2="12"/>',
   square: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>',
   x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  // The command key's sign: what says Mac without Apple's logo.
+  command:
+    '<path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/>',
   // Filled Windows mark (not Feather); overrides the inherited stroke.
   windows:
     '<path fill="currentColor" stroke="none" d="M3 5.6 11 4.5v7.1H3zM12 4.35 21 3v8.6h-9zM3 12.4h8v7.1L3 18.4zM12 12.4h9V21l-9-1.35z"/>',
