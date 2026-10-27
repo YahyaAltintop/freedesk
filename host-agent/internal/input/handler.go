@@ -1,5 +1,8 @@
 // Package input parses viewer input events (mouse/keyboard) received over the
-// WebRTC DataChannel and injects them into Windows via the user32 API.
+// WebRTC DataChannel and injects them into the operating system: on Windows
+// through the user32 API (inject_windows.go, with the key map in
+// keys_windows.go), on macOS as CoreGraphics events (inject_darwin.go,
+// keys_darwin.go).
 package input
 
 import (
@@ -8,7 +11,8 @@ import (
 )
 
 // injector is the platform layer that performs the actual injection. The
-// Windows build talks to SendInput; other platforms are no-ops.
+// Windows build talks to SendInput, the macOS one to CoreGraphics; other
+// platforms are no-ops.
 type injector interface {
 	moveMouse(x, y float64)
 	clickMouse(button int, down bool, x, y float64)

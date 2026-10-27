@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && (windows || darwin)
 
 /*
  * The C half of package vpx: a thin wrapper around the libvpx VP8 encoder and

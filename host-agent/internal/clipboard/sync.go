@@ -38,8 +38,9 @@ type Sync struct {
 	worker  *worker
 	maxText int
 	send    func(string)
-	// onFiles is called when the operator copies files in Explorer. Only the
-	// paths are handed over; nothing is read until the viewer asks.
+	// onFiles is called when the operator copies files in Explorer or the
+	// Finder. Only the paths are handed over; nothing is read until the
+	// viewer asks.
 	onFiles func([]string)
 
 	mu sync.Mutex
@@ -61,9 +62,9 @@ type Sync struct {
 func (s *Sync) OnFiles(fn func(paths []string)) { s.onFiles = fn }
 
 // PutFiles puts files on the operator's clipboard, so they can be pasted in
-// Explorer. The paths must keep existing: Windows reads the bytes at PASTE
-// time, not now, which is why the files this is called with live in the
-// downloads folder rather than anywhere temporary.
+// Explorer or the Finder. The paths must keep existing: the system reads the
+// bytes at PASTE time, not now, which is why the files this is called with
+// live in the downloads folder rather than anywhere temporary.
 func (s *Sync) PutFiles(paths []string) {
 	if len(paths) == 0 {
 		return
@@ -78,7 +79,7 @@ func (s *Sync) PutFiles(paths []string) {
 		s.ownSeq = seq
 		s.lastSeq = seq
 		s.mu.Unlock()
-		log.Printf("[clipboard] %d file(s) are on the clipboard — press Ctrl+V to paste them", len(paths))
+		log.Printf("[clipboard] %d file(s) are on the clipboard — press %s to paste them", len(paths), pasteShortcut)
 	})
 }
 

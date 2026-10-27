@@ -44,7 +44,7 @@ const keys = computed(() => {
         <div class="hs-hero" style="left: 2.6em; top: 10.2em">
           <div class="hs-hero-eyebrow"><span>free · open source · no account</span></div>
           <div class="hs-hero-h"><span>Remote desktop,</span><span class="is-grad">as simple as a code.</span></div>
-          <div class="hs-hero-lead"><span>Control a Windows PC from your browser.</span></div>
+          <div class="hs-hero-lead"><span>Control a Windows PC or a Mac from your browser.</span></div>
           <div class="hs-hero-btns">
             <span class="hs-hero-btn"><span>Download for Windows</span></span>
             <span class="hs-hero-btn is-ghost"><span>How it works</span></span>
@@ -54,7 +54,7 @@ const keys = computed(() => {
         <div class="hs-card" style="left: 23em; top: 8.3em; width: 19em; height: 12.4em">
           <div class="hs-card-badge"><AppIcon name="monitor" /></div>
           <div class="hs-card-title"><span>Connect to a computer</span></div>
-          <div class="hs-card-sub"><span>Type the code from the other PC.</span></div>
+          <div class="hs-card-sub"><span>Type the code from the other computer.</span></div>
           <div class="hs-card-label"><span>remote computer code</span></div>
           <div class="hs-input" style="left: 1.2em; top: 4.9em; width: 16.6em; height: 2.6em">
             <div class="hs-input-focus hs-in-out" style="--at: 0.11; --to: 0.555"></div>

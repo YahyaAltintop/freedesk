@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  FreeDesk.app's Info.plist. scripts/bundle-mac.sh fills in @VERSION@ (the
+  release's version, digits and dots only) and puts it in the app.
+
+  The bundle identifier is what macOS keeps the operator's permissions under
+  (Screen Recording, Accessibility, Downloads, local network) together with
+  the signature: changing it makes every Mac ask for all of them again.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>FreeDesk</string>
+	<key>CFBundleExecutable</key>
+	<string>freedesk</string>
+	<key>CFBundleIconFile</key>
+	<string>FreeDesk</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.yahyaaltintop.freedesk</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>FreeDesk</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<!-- Shown when macOS asks whether FreeDesk may use the Downloads folder:
+	     files the operator accepts from the viewer are saved there. -->
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Files you accept from the other computer are saved in Downloads/FreeDesk.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Yahya Altıntop · MIT License</string>
+	<!-- Shown when macOS asks whether FreeDesk may reach devices on the local
+	     network (macOS 15 and newer): the computer that connects can be one. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>FreeDesk connects directly to the computer that controls this one, which may be on your local network.</string>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+</dict>
+</plist>

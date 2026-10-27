@@ -8,11 +8,12 @@ import type { IconName } from '@/components/icons'
 import { useAuthStore } from '@/stores/auth.store'
 import { fetchHostByCode, removeStaleHost } from '@/services/host.service'
 import { fetchLocalIdentity, type LocalIdentity } from '@/services/localAgent'
-import { useLatestRelease } from '@/services/releases'
+import { downloadFor, useLatestRelease } from '@/services/releases'
 import { serverNow } from '@/services/serverTime'
 import { isHostOnline, isHostStaleForGc } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
 import { isNewerVersion } from '@/utils/version'
+import { localPlatform } from '@/utils/platform'
 import { RouteName } from '@/constants/routes'
 import { GITHUB_URL, PRIVACY_URL } from '@/constants/links'
 import {
@@ -32,7 +33,13 @@ const siteOrigin = window.location.origin
 const identity = ref<LocalIdentity | null>(null)
 const identityChecked = ref(false)
 const copied = ref(false)
-const isWindows = /Windows/i.test(navigator.userAgent)
+// The host program runs on Windows and macOS: what it is called here, and
+// whether it can be running here at all.
+const platform = localPlatform()
+const isMac = platform === 'mac'
+const runsHost = platform !== 'other'
+const programName = isMac ? 'FreeDesk.app' : 'freedesk.exe'
+const startCommand = isMac ? 'open FreeDesk.app' : 'freedesk.exe'
 
 // The host program running here reports its version; the download button's
 // release lookup knows the newest one. When they differ, say so right where
@@ -44,12 +51,18 @@ const hostUpdate = computed(() => {
   if (lookup?.state !== 'found' || !current) {
     return null
   }
-  return isNewerVersion(lookup.release.version, current) ? lookup.release : null
+  if (!isNewerVersion(lookup.release.version, current)) {
+    return null
+  }
+  return {
+    version: lookup.release.version,
+    downloadUrl: downloadFor(lookup.release, isMac ? 'mac' : 'windows').url,
+  }
 })
 
 // The agent is probed again every few seconds (loopback, cheap) so the code
-// shows up by itself once the user starts freedesk.exe and disappears
-// when they close it. Paused while the tab is hidden.
+// shows up by itself once the user starts the program and disappears when
+// they close it. Paused while the tab is hidden.
 const REPROBE_IDLE_MS = 4_000
 const REPROBE_RUNNING_MS = 10_000
 let reprobeTimer: ReturnType<typeof setTimeout> | undefined
@@ -59,10 +72,10 @@ async function loadIdentity(): Promise<void> {
   if (probing) {
     return
   }
-  if (!isWindows) {
-    // The host agent only runs on Windows; anywhere else there is nothing on
-    // the loopback to ask, so do not ask it every few seconds for the life of
-    // the tab.
+  if (!runsHost) {
+    // The host agent runs on Windows and macOS only; anywhere else there is
+    // nothing on the loopback to ask, so do not ask it every few seconds for
+    // the life of the tab.
     identityChecked.value = true
     return
   }
@@ -220,7 +233,7 @@ const features: Feature[] = [
             <span class="fd-gradient-text">as simple as a code.</span>
           </h1>
           <p class="fd-lead fd-rise" style="--d: 2">
-            Control a Windows PC from your browser. Share a 6-digit code, click Yes, done.
+            Control a Windows PC or a Mac from your browser. Share a 6-digit code, click Yes, done.
           </p>
           <div class="d-flex flex-wrap align-items-start gap-3 mb-4 fd-rise" style="--d: 3">
             <DownloadButton />
@@ -239,7 +252,7 @@ const features: Feature[] = [
               <span class="fd-icon-badge"><AppIcon name="monitor" /></span>
               <div>
                 <h2 class="fd-card-title">Connect to a computer</h2>
-                <p class="fd-card-sub">Type the code from the other PC.</p>
+                <p class="fd-card-sub">Type the code from the other computer.</p>
               </div>
             </div>
 
@@ -294,7 +307,7 @@ const features: Feature[] = [
           </span>
           <div>
             <h2 class="fd-card-title">Share this computer</h2>
-            <p class="fd-card-sub">Let someone control this PC.</p>
+            <p class="fd-card-sub">Let someone control this computer.</p>
           </div>
         </div>
         <span v-if="identityChecked" class="fd-status" :class="identity ? 'is-on' : 'is-off'">
@@ -311,7 +324,7 @@ const features: Feature[] = [
               <span class="fd-term-dot"></span>
               <span class="fd-term-dot"></span>
               <span class="fd-term-dot"></span>
-              <span class="ms-2">freedesk.exe</span>
+              <span class="ms-2">{{ programName }}</span>
             </div>
             <div class="fd-term-body">
               <div v-if="!identityChecked">
@@ -331,7 +344,7 @@ const features: Feature[] = [
                 </div>
               </template>
               <template v-else>
-                <div><span class="fd-term-k">$</span> freedesk.exe</div>
+                <div><span class="fd-term-k">$</span> {{ startCommand }}</div>
                 <div class="fd-term-dim">waiting for the program to start <span class="fd-cursor"></span></div>
               </template>
             </div>
@@ -367,7 +380,24 @@ const features: Feature[] = [
           </template>
 
           <template v-else-if="identityChecked">
-            <ol class="fd-steps mb-4">
+            <ol v-if="isMac" class="fd-steps mb-4">
+              <li>
+                <span>
+                  <strong>Download</strong> <code>FreeDesk.dmg</code>. Open it, drag FreeDesk onto
+                  Applications.
+                </span>
+              </li>
+              <li>
+                <span>
+                  <strong>Open it.</strong> Allow Screen Recording and Accessibility when asked, then
+                  open it again.
+                </span>
+              </li>
+              <li>
+                <span><strong>Share the code</strong> it shows.</span>
+              </li>
+            </ol>
+            <ol v-else class="fd-steps mb-4">
               <li>
                 <span><strong>Download</strong> <code>freedesk.exe</code>. One file, nothing to unpack.</span>
               </li>
@@ -391,8 +421,10 @@ const features: Feature[] = [
               </button>
             </div>
             <p class="fd-hint mt-3 mb-0">
-              <template v-if="isWindows">This page updates by itself once it runs.</template>
-              <template v-else>The host runs on Windows 10/11. Connecting works from anywhere.</template>
+              <template v-if="runsHost">This page updates by itself once it runs.</template>
+              <template v-else>
+                The host runs on Windows 10/11 and macOS 13+. Connecting works from anywhere.
+              </template>
               Only connecting out? You don't need it.
             </p>
             <p class="fd-hint mt-2 mb-0">
@@ -400,9 +432,16 @@ const features: Feature[] = [
               <a :href="GITHUB_URL" target="_blank" rel="noopener">Read the code on GitHub</a>.
               What it sends, and where:
               <a :href="PRIVACY_URL" target="_blank" rel="noopener">Privacy</a>.
-              The build isn't signed yet, so your browser and Windows may warn. Keep the file,
-              then choose <strong>More info → Run anyway</strong>, or check the SHA-256 on the
-              release page.
+              <template v-if="isMac">
+                The app isn't signed with an Apple Developer ID yet, so macOS won't open it at
+                first: open it once, then choose <strong>Open Anyway</strong> in System Settings →
+                Privacy &amp; Security. Or check the SHA-256 on the release page first.
+              </template>
+              <template v-else>
+                The build isn't signed yet, so your browser and Windows may warn. Keep the file,
+                then choose <strong>More info → Run anyway</strong>, or check the SHA-256 on the
+                release page.
+              </template>
             </p>
           </template>
         </div>
@@ -426,8 +465,8 @@ const features: Feature[] = [
       </div>
     </div>
     <p class="fd-hint mt-4 mb-0">
-      Windows 10/11 hosts · primary monitor · no audio · some networks (CGNAT) can't connect
-      directly.
+      Windows 10/11 and macOS 13+ hosts · primary monitor · no audio · some networks (CGNAT)
+      can't connect directly.
       <a :href="GITHUB_URL" target="_blank" rel="noopener">Details on GitHub.</a>
     </p>
   </section>

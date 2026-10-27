@@ -10,7 +10,10 @@ import (
 
 	pion "github.com/pion/webrtc/v4"
 
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/capture"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/clipboard"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firewall"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/protocol"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/webrtc"
 )
@@ -68,7 +71,8 @@ func TestFailedNegotiationReleasesTheSession(t *testing.T) {
 // A connection that fails while a security product runs the firewall names
 // that product, and only then says to start FreeDesk again — with the new
 // code, since every start has one. Windows never asks in that case, so the
-// advice must not say it did; without a product it stays Windows' question.
+// advice must not say it did; without a product it is the question the
+// system's own firewall asks.
 func TestFailureAdviceNamesTheFirewallInCharge(t *testing.T) {
 	unreachable := errors.New("peer-to-peer connection could not be established")
 
@@ -83,16 +87,16 @@ func TestFailureAdviceNamesTheFirewallInCharge(t *testing.T) {
 			t.Errorf("with Norton in charge the advice lacks %q:\n%s", want, owned)
 		}
 	}
-	if strings.Contains(owned, "If Windows asked") {
+	if strings.Contains(owned, firewall.IfAsked) {
 		t.Errorf("with Norton in charge Windows never asks, yet the advice says it did:\n%s", owned)
 	}
 
-	windows := strings.Join(failureAdvice("s1", unreachable, ""), "\n")
-	if !strings.Contains(windows, "If Windows asked whether to allow FreeDesk through the firewall, choose Allow (Private and Public).") {
-		t.Errorf("with Windows' own firewall the advice lost its question:\n%s", windows)
+	own := strings.Join(failureAdvice("s1", unreachable, ""), "\n")
+	if !strings.Contains(own, firewall.IfAsked) {
+		t.Errorf("with the system's own firewall the advice lost its question:\n%s", own)
 	}
-	if strings.Contains(windows, "start it again") {
-		t.Errorf("a restart is advice for a product that is still deciding, not for Windows:\n%s", windows)
+	if strings.Contains(own, "start it again") {
+		t.Errorf("a restart is advice for a product that is still deciding, not for the system's firewall:\n%s", own)
 	}
 
 	gone := failureAdvice("s1", fmt.Errorf("waiting for the answer: %w", signaling.ErrSessionGone), "Norton 360")
@@ -107,6 +111,23 @@ func TestFailureAdviceNamesTheFirewallInCharge(t *testing.T) {
 	c.FirewallOwner(func() string { return "Norton 360" })
 	if got := c.firewallProduct(); got != "Norton 360" {
 		t.Errorf("firewallProduct = %q, want the registered answer", got)
+	}
+}
+
+// Where the build has no clipboard, RC_CLIPBOARD=text cannot turn sharing on:
+// the greeting would promise the viewer a clipboard nothing keeps in step.
+func TestNoClipboardMeansSharingIsOff(t *testing.T) {
+	c := NewCoordinator(nil, "owner", webrtc.Config{}, capture.Options{}, "0.0.0", nil, clipboard.ModeText)
+	want := clipboard.ModeOff
+	if clipboard.Supported {
+		want = clipboard.ModeText
+	}
+	if c.clipboardMode != want {
+		t.Errorf("clipboard mode %q where Supported is %v, want %q", c.clipboardMode, clipboard.Supported, want)
+	}
+	claimed := strings.Contains(strings.Join(c.capabilities(), " "), protocol.CapClipText)
+	if claimed != clipboard.Supported {
+		t.Errorf("clip.text claimed: %v, but Supported is %v", claimed, clipboard.Supported)
 	}
 }
 

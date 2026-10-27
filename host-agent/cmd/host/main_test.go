@@ -142,21 +142,24 @@ func TestWatchFirewallStandsDownForAnotherProduct(t *testing.T) {
 	}
 }
 
-// Windows' own firewall with no rule for the program is still worth a
-// warning, and nobody is named as the firewall's owner.
-func TestWatchFirewallStillWarnsForWindows(t *testing.T) {
+// The system's own firewall keeping the program out is worth a warning, in
+// the system's words, and nobody is named as the firewall's owner.
+func TestWatchFirewallWarnsForTheSystemFirewall(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	// Cancelled during the first check: the warning is written, then the
 	// wait for the next check ends at once.
-	out := fakeFirewall(t, firewall.Status{Enabled: true, Network: "Private"}, cancel)
+	st := firewall.Status{Enabled: true, Network: "Private"}
+	out := fakeFirewall(t, st, cancel)
 
 	named := false
 	watchFirewall(ctx, nil, func(string) { named = true })
 	if named {
-		t.Error("an owner was named for Windows' own firewall")
+		t.Error("an owner was named for the system's own firewall")
 	}
-	if !strings.Contains(out.String(), "Windows has not yet allowed this program to receive connections") {
-		t.Errorf("no warning for a program Windows' firewall has no rule for:\n%s", out)
+	for _, line := range st.Advice() {
+		if !strings.Contains(out.String(), "[host-agent] "+line+"\n") {
+			t.Errorf("the warning lacks %q:\n%s", line, out)
+		}
 	}
 }
 

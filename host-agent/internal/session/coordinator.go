@@ -17,6 +17,7 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/consent"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/diag"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/firewall"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/input"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/protocol"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/signaling"
@@ -213,8 +214,8 @@ type Coordinator struct {
 	// row ended without a yes. Nil means only the log line.
 	onRefusals func(streak int)
 	// firewallOwner names the security product running this computer's
-	// firewall instead of Windows. Nil, or an empty name, means Windows'
-	// own firewall, or not known (yet).
+	// firewall instead of Windows. Nil, or an empty name, means the system's
+	// own firewall (always, on macOS), or not known (yet).
 	firewallOwner func() string
 
 	mu         sync.Mutex
@@ -264,6 +265,12 @@ func (c *Coordinator) noteConnectOutcome(approved bool) (limitReached bool) {
 // NewCoordinator builds a coordinator for the authenticated owner, with the
 // ICE config and the screen-capture options to use.
 func NewCoordinator(rtdb *firebase.RTDB, ownerUID string, cfg webrtc.Config, cap capture.Options, version string, picker consent.FilePicker, clipboardMode string) *Coordinator {
+	// Where this build has no clipboard, sharing it is off, whatever
+	// RC_CLIPBOARD says: the capability is not claimed, the connection
+	// question does not offer it, and no clipboard worker starts.
+	if !clipboard.Supported {
+		clipboardMode = clipboard.ModeOff
+	}
 	return &Coordinator{
 		rtdb: rtdb, ownerUID: ownerUID, cfg: cfg,
 		capture: cap, version: version, picker: picker,
@@ -584,7 +591,7 @@ func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTra
 				s.transfers.OfferFiles(fmt.Sprintf("clip-%d", clipOffer.Add(1)), paths)
 			})
 			// And files the viewer pastes go on the operator's clipboard once
-			// they are safely saved, so Ctrl+V in Explorer works.
+			// they are safely saved, so pasting in Explorer or the Finder works.
 			s.transfers.OnPasted(clip.PutFiles)
 			s.clip.Store(&clip)
 		}
@@ -620,24 +627,27 @@ func (c *Coordinator) run(ctx context.Context, req Request, transport sessionTra
 // connection that was approved never came up: one entry per log line. The
 // viewer leaving is one story; every other failure is the network's, and on
 // the machine itself the one thing that causes it — and that the operator can
-// change — is the firewall's answer. firewall names the security product
-// running the firewall instead of Windows, or is empty.
+// change — is the firewall's answer. product names the security product
+// running the firewall instead of Windows, or is empty (always, on macOS).
 //
 // Such a product decides about a program it has never seen on its own
 // schedule, and an unsigned download can be kept out until it has: the first
 // connection after a download fails, the next start works. Restarting means
 // a new code, so the advice says to use the one the window shows then.
-func failureAdvice(sessionID string, err error, firewall string) []string {
+func failureAdvice(sessionID string, err error, product string) []string {
 	if errors.Is(err, signaling.ErrSessionGone) {
 		return []string{sessionID + ": the other side gave up before the connection was made"}
 	}
 	lines := []string{sessionID + ": the other computer could not reach this one."}
-	if firewall != "" {
+	if product != "" {
 		lines = append(lines,
-			"  "+firewall+" runs this computer's firewall instead of Windows. If it asked about FreeDesk, allow it.",
+			"  "+product+" runs this computer's firewall instead of Windows. If it asked about FreeDesk, allow it.",
 			"  Just after a download it may still be checking FreeDesk: close FreeDesk, start it again, and connect with the new code it shows.")
 	} else {
-		lines = append(lines, "  If Windows asked whether to allow FreeDesk through the firewall, choose Allow (Private and Public).")
+		lines = append(lines, "  "+firewall.IfAsked)
+	}
+	if localNetworkAdvice != "" {
+		lines = append(lines, "  "+localNetworkAdvice)
 	}
 	return append(lines, "  On some networks (mobile data, shared or corporate Wi-Fi) a direct connection is not possible.")
 }

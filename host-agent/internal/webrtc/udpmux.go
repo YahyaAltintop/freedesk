@@ -11,11 +11,12 @@ import (
 //
 // Opening it once, first thing at start-up, does two things a socket per
 // session cannot. Windows asks whether to let a program through its firewall
-// the moment the program first listens; with a socket per session that moment
-// came behind the first connection's consent prompt, where the question was
-// easy to miss and, left unanswered, kept every packet from the viewer out.
-// Now it comes while the operator is still looking at the window. And a fixed
-// port is something a person can put in a firewall rule.
+// the moment the program first listens, and so does macOS, when its firewall
+// is on; with a socket per session that moment came behind the first
+// connection's consent prompt, where the question was easy to miss and, left
+// unanswered, kept every packet from the viewer out. Now it comes while the
+// operator is still looking at the window. And a fixed port is something a
+// person can put in a firewall rule.
 type UDPMux struct {
 	conn *net.UDPConn
 	mux  *ice.UDPMuxDefault

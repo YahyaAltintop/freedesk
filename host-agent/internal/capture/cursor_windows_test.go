@@ -36,8 +36,8 @@ func TestCursorPainterForgetsTheOldFrame(t *testing.T) {
 	// What a paint into old leaves behind with the pointer at its bottom
 	// right corner.
 	var p cursorPainter
-	p.draw(old, arrow, 0, 390, 390)
-	p.frame, p.last, p.valid = old, pointerState{visible: true, handle: arrow, x: 390, y: 390}, true
+	p.draw(&old.picture, arrow, 0, 390, 390)
+	p.frame, p.last, p.valid = &old.picture, pointerState{visible: true, handle: arrow, x: 390, y: 390}, true
 	if !p.drawn || (p.rx+p.rw <= small.w && p.ry+p.rh <= small.h) {
 		t.Fatalf("test setup: the pointer's rectangle (%d,%d %dx%d) must lie outside the small bitmap", p.rx, p.ry, p.rw, p.rh)
 	}
@@ -46,8 +46,8 @@ func TestCursorPainterForgetsTheOldFrame(t *testing.T) {
 	// is another bitmap. Whether the real pointer lands in the small bitmap
 	// depends on where it is on the screen; what matters is that the old
 	// rectangle is never written into it.
-	p.paint(small, 0, 0, false, time.Now())
-	if p.frame != small {
+	p.paint(&small.picture, 0, 0, false, time.Now())
+	if p.frame != &small.picture {
 		t.Fatal("the painter must now describe the new bitmap")
 	}
 	if p.drawn && (p.rx+p.rw > small.w || p.ry+p.rh > small.h) {
@@ -69,7 +69,7 @@ func TestCursorPainterReportsOnlyRealChanges(t *testing.T) {
 	var p cursorPainter
 	now := time.Now()
 	for i := range 5 {
-		if p.paint(frame, far, far, i == 0, now.Add(time.Duration(i)*time.Second)) {
+		if p.paint(&frame.picture, far, far, i == 0, now.Add(time.Duration(i)*time.Second)) {
 			t.Fatalf("paint %d reported a change with the pointer outside the frame", i)
 		}
 	}

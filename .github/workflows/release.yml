@@ -1,25 +1,32 @@
 name: Release
 
-# Tag a commit `vX.Y.Z` and push the tag: this builds the Windows host agent
-# with the Firebase project embedded, libvpx linked in and the license texts
-# of everything in it built in, and publishes freedesk.exe on the GitHub
-# release together with its SHA-256 and a build provenance attestation. The
-# exe is the whole download: nothing to unpack. Which repository variables
-# and secrets the build reads and how to verify a download: docs/RELEASING.md.
+# Tag a commit `vX.Y.Z` and push the tag: this builds the host agent for
+# Windows and for macOS, with the Firebase project embedded, libvpx linked in
+# and the license texts of everything in it built in, and publishes both on
+# one GitHub release, each with its SHA-256 and a build provenance
+# attestation: freedesk.exe, the whole Windows program, nothing to unpack, and
+# FreeDesk.dmg, a disk image that opens on FreeDesk.app, a universal app for
+# Apple silicon and Intel Macs, to drag onto Applications. Which repository variables and secrets the build
+# reads and how to verify a download: docs/RELEASING.md.
 #
 # What this workflow runs or downloads is pinned to an immutable identity:
 # actions by commit SHA, libvpx by commit (scripts/build-libvpx.sh), go-winres
-# by go.sum, because the exe it produces runs on every host machine with the
-# operator's rights. A floating tag is a way for someone else's compromise to
-# become ours. The one exception is the C compiler: MSYS2's packages are
-# signature-checked by pacman, but come in whatever version MSYS2 ships today.
+# by go.sum, because the programs it produces run on every host machine with
+# the operator's rights. A floating tag is a way for someone else's compromise
+# to become ours. The exceptions are the C toolchains: MSYS2's packages are
+# signature-checked by pacman, but come in whatever version MSYS2 ships today;
+# on the Mac, Xcode is the runner image's and nasm is Homebrew's.
 #
-# The "Check the API key" step refuses to build with a key that rejects a
-# request without a referrer, so a broken exe is never published. The exe is
-# signed by SignPath only when the SIGNPATH_API_TOKEN secret exists; until
-# then those steps are skipped and Windows shows "Unknown publisher" on first
-# run. A tag with a hyphen (v1.2.3-rc1) is published as a pre-release, which
-# the web page's Download button and the program's update check never offer.
+# The "check" job refuses to build with a key that rejects a request without
+# a referrer, so a broken program is never published. The exe is signed by
+# SignPath only when the SIGNPATH_API_TOKEN secret exists; until then those
+# steps are skipped and Windows shows "Unknown publisher" on first run. The
+# Mac app is signed with a Developer ID and notarized by Apple only when the
+# APPLE_CERT_P12 secret exists; until then it is signed ad hoc, and macOS
+# refuses to open it until the operator chooses Open Anyway. Both programs are
+# built before either is published, so a release never has only one of them.
+# A tag with a hyphen (v1.2.3-rc1) is published as a pre-release, which the
+# web page's Download button and the program's update check never offer.
 
 on:
   push:
@@ -32,29 +39,21 @@ permissions:
   actions: read # SignPath reads this run and downloads its unsigned artifact
 
 env:
-  # The asset name; frontend/src/constants/links.ts looks for exactly this.
+  # The asset names; frontend/src/constants/links.ts looks for exactly these.
   ASSET_NAME: freedesk.exe
+  ASSET_NAME_MAC: FreeDesk.dmg
 
 jobs:
-  windows:
-    name: Build and publish (Windows x64)
-    runs-on: windows-latest
+  # The Firebase configuration both programs embed, checked once, before
+  # either is built.
+  check:
+    name: Check the configuration
+    runs-on: ubuntu-latest
     env:
       AGENT_API_KEY: ${{ vars.FIREBASE_AGENT_API_KEY || vars.FIREBASE_API_KEY }}
       FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
       FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
-      # "true" once SignPath signs for this repository (docs/RELEASING.md).
-      # The token itself is handed to the signing step only.
-      HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: host-agent/go.mod
-          # A release is built from nothing but the tagged source and go.sum:
-          # no module or build cache restored from an earlier run.
-          cache: false
-
       - name: Check Firebase variables
         shell: pwsh
         run: |
@@ -87,7 +86,7 @@ jobs:
           $replyFile = [System.IO.Path]::GetTempFileName()
           foreach ($c in $checks) {
             Set-Content -Path $bodyFile -Value $c.body -NoNewline -Encoding ascii
-            $status = & curl.exe -sS -o $replyFile -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$bodyFile" $c.url
+            $status = & curl -sS -o $replyFile -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$bodyFile" $c.url
             $message = Get-Content -Path $replyFile -Raw
             $reason = ""
             try {
@@ -103,6 +102,28 @@ jobs:
               "The host agent is a desktop program. Use a key with Application restrictions = None whose API restrictions " +
               "allow both Identity Toolkit API and Token Service API (repository variable FIREBASE_AGENT_API_KEY).")
           }
+
+  windows:
+    name: Build (Windows x64)
+    needs: check
+    runs-on: windows-latest
+    outputs:
+      signature-note: ${{ steps.note.outputs.note }}
+    env:
+      AGENT_API_KEY: ${{ vars.FIREBASE_AGENT_API_KEY || vars.FIREBASE_API_KEY }}
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
+      # "true" once SignPath signs for this repository (docs/RELEASING.md).
+      # The token itself is handed to the signing step only.
+      HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: host-agent/go.mod
+          # A release is built from nothing but the tagged source and go.sum:
+          # no module or build cache restored from an earlier run.
+          cache: false
 
       # The C toolchain for cgo and libvpx: MSYS2's UCRT64 gcc and nasm. The
       # action installs its own MSYS2 (the installer is pinned by the action's
@@ -274,6 +295,7 @@ jobs:
       # What the release page says about the signature follows the file that
       # is published, not the configuration.
       - name: Describe the signature
+        id: note
         shell: pwsh
         run: |
           if ((Get-AuthenticodeSignature dist/freedesk.exe).Status -eq "Valid") {
@@ -281,28 +303,232 @@ jobs:
           } else {
             $note = "The program is not code-signed yet, so your browser may ask whether to keep the download, and Windows may say *Unknown publisher* the first time: choose **More info → Run anyway**."
           }
-          Add-Content -Path $env:GITHUB_ENV -Value "SIGNATURE_NOTE=$note"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "note=$note"
           $note
 
-      # The two files are uploaded under their own names: freedesk.exe, the
-      # whole program, and its checksum. The text below goes above the
-      # generated notes: how to run the exe, check it and update it.
+      # Published once the Mac app is built too (the publish job).
+      - name: Keep for publishing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-windows
+          path: |
+            dist/${{ env.ASSET_NAME }}
+            dist/${{ env.ASSET_NAME }}.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  macos:
+    name: Build (macOS, Apple silicon and Intel)
+    needs: check
+    # Apple silicon; the Intel half of the app is built here too.
+    runs-on: macos-15
+    outputs:
+      signature-note: ${{ steps.note.outputs.note }}
+    env:
+      AGENT_API_KEY: ${{ vars.FIREBASE_AGENT_API_KEY || vars.FIREBASE_API_KEY }}
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      FIREBASE_DATABASE_URL: ${{ vars.FIREBASE_DATABASE_URL }}
+      # "true" once a Developer ID certificate is stored (docs/RELEASING.md).
+      # The secrets themselves are handed to the steps that use them only.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERT_P12 != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: host-agent/go.mod
+          # As for Windows: nothing restored from an earlier run.
+          cache: false
+
+      # The Xcode the runner image selects, whose SDK must be macOS 15.4 or
+      # newer (internal/macos stops the build otherwise), and nasm for the
+      # Intel half of libvpx.
+      - name: Toolchain
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          xcodebuild -version
+          echo "macOS SDK $(xcrun --sdk macosx --show-sdk-version)"
+          brew install nasm
+
+      # Built from source on every release, never restored from a cache: the
+      # library ends up inside the app.
+      - name: Build libvpx (VP8 encoder, static, Apple silicon and Intel)
+        working-directory: host-agent
+        run: bash scripts/build-libvpx.sh
+
+      # A Developer ID Application certificate, with its private key, into a
+      # keychain of this run's own, deleted again at the end of the job.
+      - name: Import the signing certificate
+        if: env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -base64 24)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$APPLE_CERT_P12" | base64 --decode >"$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
+          # shellcheck disable=SC2046 # the keychain list, one word each
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          # awk reads to the end: a reader that stops early would break the
+          # pipe under pipefail.
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk '/"Developer ID Application: / && !found { print $2; found = 1 }')
+          if [ -z "$identity" ]; then
+            echo "APPLE_CERT_P12 holds no Developer ID Application certificate with its key" >&2
+            exit 1
+          fi
+          security find-identity -v -p codesigning "$keychain"
+          echo "FD_SIGN_IDENTITY=$identity" >>"$GITHUB_ENV"
+
+      # The same settings as the Windows exe, and the same checks:
+      # scripts/bundle-mac.sh builds the universal program for macOS 13 and
+      # newer from an empty cache, refuses one importcheck rejects, signs the
+      # app (with the certificate above, or ad hoc without it) and puts it in
+      # the disk image, which it signs too. With a certificate the disk image
+      # is made later, around the notarized and stapled app (Notarize).
+      - name: Build the app
+        working-directory: host-agent
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cfg="$(go list -m)/internal/config"
+          # A Hosting site named differently from the project (firebase.json
+          # "hosting.site") must be allowed to read the code from the agent.
+          site=$(plutil -extract hosting.site raw -o - ../firebase/firebase.json 2>/dev/null || true)
+          echo "hosting site: '$site'"
+          go run ./cmd/notices -o internal/licenses/generated/LICENSES.txt
+          export FD_LDFLAGS="-X $cfg.BuildAPIKey=$AGENT_API_KEY -X $cfg.BuildProjectID=$FIREBASE_PROJECT_ID -X $cfg.BuildDatabaseURL=$FIREBASE_DATABASE_URL -X $cfg.BuildHostingSite=$site -X $cfg.BuildRepo=$GITHUB_REPOSITORY"
+          mode=""
+          if [ "$HAS_APPLE_CERT" = true ]; then mode=--no-dmg; fi
+          bash scripts/bundle-mac.sh --version "$version" --out ../dist $mode
+          ls -l ../dist
+
+      # Apple's notary service checks the signed app and records a ticket for
+      # it, stapled to the app itself: the copy the operator drags out of the
+      # disk image then opens without asking Apple, on a Mac that is offline
+      # too. Only then is the disk image made around the stapled app, and
+      # notarized and stapled in turn, for the download. The ticket Apple has
+      # just issued is now and then not served yet when stapler asks for it:
+      # a few tries.
+      - name: Notarize
+        if: env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          credentials=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD")
+          notarize() { # <file to submit> <what to staple the ticket to>
+            xcrun notarytool submit "$1" "${credentials[@]}" --wait --timeout 1h --output-format json >"$RUNNER_TEMP/notary.json" || true
+            cat "$RUNNER_TEMP/notary.json"
+            status=$(plutil -extract status raw -o - "$RUNNER_TEMP/notary.json" 2>/dev/null || true)
+            if [ "$status" != Accepted ]; then
+              id=$(plutil -extract id raw -o - "$RUNNER_TEMP/notary.json" 2>/dev/null || true)
+              if [ -n "$id" ]; then xcrun notarytool log "$id" "${credentials[@]}"; fi
+              echo "notarization of $1 ended with '$status', not Accepted" >&2
+              exit 1
+            fi
+            for try in 1 2 3 4 5; do
+              if xcrun stapler staple "$2"; then break; fi
+              if [ "$try" = 5 ]; then echo "the ticket for $2 could not be stapled" >&2; exit 1; fi
+              sleep 30
+            done
+            xcrun stapler validate "$2"
+          }
+          ditto -c -k --keepParent dist/FreeDesk.app "$RUNNER_TEMP/FreeDesk.zip"
+          notarize "$RUNNER_TEMP/FreeDesk.zip" dist/FreeDesk.app
+          bash host-agent/scripts/bundle-mac.sh --out ../dist --dmg-only
+          notarize "dist/$ASSET_NAME_MAC" "dist/$ASSET_NAME_MAC"
+          spctl --assess --type execute --verbose=4 dist/FreeDesk.app
+          spctl --assess --type open --context context:primary-signature --verbose=4 "dist/$ASSET_NAME_MAC"
+
+      - name: Remove the signing keychain
+        if: always() && env.HAS_APPLE_CERT == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+      # After notarization, which staples the ticket into the disk image: the
+      # checksum and the attestation describe the bytes that are published, in
+      # the same layout as the exe's.
+      - name: Checksum
+        working-directory: dist
+        run: |
+          shasum -a 256 "$ASSET_NAME_MAC" >"$ASSET_NAME_MAC.sha256"
+          cat "$ASSET_NAME_MAC.sha256"
+          ls -l
+
+      # Anyone can check it: gh attestation verify FreeDesk.dmg --repo <owner>/<repo>
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/${{ env.ASSET_NAME_MAC }}
+
+      # As for Windows, what the release page says follows what is published:
+      # an app with a Developer ID signature and Apple's ticket stapled to it,
+      # in a disk image with its own ticket stapled to it. (Not spctl: with Gatekeeper turned off, as on
+      # some runners, it accepts anything.)
+      - name: Describe the signature
+        id: note
+        run: |
+          signature=$(codesign -dv --verbose=2 dist/FreeDesk.app 2>&1 || true)
+          if grep -q '^Authority=Developer ID Application: ' <<<"$signature" &&
+            xcrun stapler validate dist/FreeDesk.app >/dev/null 2>&1 &&
+            xcrun stapler validate "dist/$ASSET_NAME_MAC" >/dev/null 2>&1; then
+            note="Signed with a Developer ID and notarized by Apple."
+          else
+            note="The app is not signed with an Apple Developer ID yet, so macOS refuses to open it at first: open it once, then choose **Open Anyway** in System Settings → Privacy & Security."
+          fi
+          echo "note=$note" >>"$GITHUB_OUTPUT"
+          echo "$note"
+
+      - name: Keep for publishing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-macos
+          path: |
+            dist/${{ env.ASSET_NAME_MAC }}
+            dist/${{ env.ASSET_NAME_MAC }}.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  # Both programs, built and checked, on one release. The four files are
+  # uploaded under their own names. The text below goes above the generated
+  # notes: how to run each program, check it and update it.
+  publish:
+    name: Publish the release
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
       - name: Publish release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             dist/${{ env.ASSET_NAME }}
             dist/${{ env.ASSET_NAME }}.sha256
+            dist/${{ env.ASSET_NAME_MAC }}
+            dist/${{ env.ASSET_NAME_MAC }}.sha256
+          fail_on_unmatched_files: true
           # v1.2.3-rc1 and the like: published, but never "latest".
           prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
-            **Download `freedesk.exe` and run it.** It is the whole program: nothing to install or unpack. Windows 10/11.
+            **Windows: download `freedesk.exe` and run it.** It is the whole program: nothing to install or unpack. Windows 10/11.
 
-            ${{ env.SIGNATURE_NOTE }} To check the file, compare its SHA-256 with `freedesk.exe.sha256` (`Get-FileHash freedesk.exe`), or run `gh attestation verify freedesk.exe --repo ${{ github.repository }}`.
+            ${{ needs.windows.outputs.signature-note }} To check the file, compare its SHA-256 with `freedesk.exe.sha256` (`Get-FileHash freedesk.exe`), or run `gh attestation verify freedesk.exe --repo ${{ github.repository }}`.
+
+            **Mac: download `FreeDesk.dmg`, open it, and drag FreeDesk onto Applications.** macOS 13 or newer, Apple silicon and Intel. ${{ needs.macos.outputs.signature-note }} On its first start FreeDesk asks to record the screen and to control the computer: allow both in System Settings → Privacy & Security (Screen & System Audio Recording — Screen Recording before macOS 15 — and Accessibility), then start FreeDesk again. To check the file, run `shasum -a 256 -c FreeDesk.dmg.sha256` next to it, or `gh attestation verify FreeDesk.dmg --repo ${{ github.repository }}`.
 
             **Blocked by antivirus?** Norton, Avast and AVG can block a new release, or its download, before anyone has run it: a verdict on a new, unsigned file's reputation. Check the file as above and report the detection from your antivirus: [why it happens](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/docs/ANTIVIRUS.md).
 
-            **Updating:** close FreeDesk, then put the new `freedesk.exe` in place of the old one, same folder and same name (rename it if your browser saved it as `freedesk (1).exe`), so Windows keeps the network permission it gave. The licenses of the code built into the program are in it: the **Licenses** button in its window.
+            **Updating:** close FreeDesk, then put the new program in place of the old one. On Windows that is the same folder and the same name (rename it if your browser saved it as `freedesk (1).exe`), so Windows keeps the network permission it gave. On a Mac it is FreeDesk in Applications; while the app is not signed with a Developer ID, macOS treats every update as a new program and asks for its permissions again. The licenses of the code built into the program are in it: the **Licenses** button in its window.
 
             **Privacy:** what the program sends, where, and for how long: [PRIVACY.md](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/PRIVACY.md), also behind the **Privacy** button in its window.
           generate_release_notes: true
