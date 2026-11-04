@@ -33,6 +33,7 @@ import (
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firebase"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/firewall"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/host"
+	"github.com/YahyaAltintop/freedesk/host-agent/internal/input"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/licenses"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/localapi"
 	"github.com/YahyaAltintop/freedesk/host-agent/internal/session"
@@ -69,9 +70,9 @@ const (
 	shutdownTimeout     = 4 * time.Second
 	registerAttempts    = 3
 
-	// firewallCheckTimeout bounds the questions to Windows behind the
-	// firewall warning. They take milliseconds; a machine where they hang
-	// simply gets no warning.
+	// firewallCheckTimeout bounds the questions to the firewall behind its
+	// warning. They take milliseconds; a machine where they hang simply gets
+	// no warning.
 	// firewallRecheck is how often the question is asked again while the
 	// answer keeps viewers out, so the warning clears once the operator
 	// has clicked Allow.
@@ -81,9 +82,9 @@ const (
 
 func init() {
 	// The status window's message loop has to run on the thread that created
-	// the window, and Windows wants that to be the process's first thread.
-	// Locking in init is how Go promises main() that thread. Harmless where
-	// there is no window.
+	// the window, and Windows wants that to be the process's first thread;
+	// AppKit works on no other. Locking in init is how Go promises main() that
+	// thread. Harmless where there is no window.
 	runtime.LockOSThread()
 }
 
@@ -95,7 +96,7 @@ func main() {
 	}
 
 	log.SetFlags(log.LstdFlags)
-	cfg, cfgErr := config.Load(envFile)
+	cfg, cfgErr := config.Load(envPath())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -204,6 +205,12 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// An app run from its disk image, or from the copy macOS makes of a
+	// downloaded app: the permissions asked for below would not stay.
+	if msg, ok := placeWarning(); ok {
+		log.Println("[host-agent] " + msg)
+	}
+
 	// --- Network ---------------------------------------------------------------
 	// The one UDP socket every connection will use is opened before anything
 	// else. Windows asks whether to let a program through its firewall the
@@ -280,14 +287,34 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 		// A developer build without cgo: everything works except the picture.
 		diag.Printf("[host-agent] this build has no video encoder (built with CGO_ENABLED=0); sessions will have no picture")
 	}
+	// macOS lets a program record the screen, or control the computer, only
+	// once the operator has said so. Both are asked now, at start-up, while
+	// they are looking at the window, and not when someone connects. Screen
+	// Recording given now takes effect at the next start.
+	if !capture.CheckAccess(true) {
+		log.Printf("[host-agent] this computer's screen cannot be shared yet: allow FreeDesk in System Settings > Privacy & Security > Screen & System Audio Recording (Screen Recording before macOS 15), then start FreeDesk again. Until then, connections have no picture.")
+	}
+	if !input.CheckAccess(true) {
+		log.Printf("[host-agent] the viewer cannot control this computer yet: allow FreeDesk in System Settings > Privacy & Security > Accessibility. Until then, the viewer's mouse and keyboard do nothing.")
+	}
 
 	// Say where accepted files would go before anyone sends one — the operator
 	// should not first learn this from a prompt. The folder itself is only
-	// created if a file is ever accepted. Any half-written file left by a run
-	// that was killed is cleaned up here.
+	// created if a file is ever accepted. On macOS the Downloads folder is
+	// opened to a program only once the operator allows it; looking now is
+	// what makes macOS ask, with the questions above. Any half-written file
+	// left by a run that was killed is cleaned up here.
 	downloads := transfer.NewDest().Root()
 	log.Printf("[host-agent] files you accept will be saved to: %s", downloads)
+	if !transfer.CheckAccess(downloads) {
+		log.Printf("[host-agent] files cannot be saved there yet: allow FreeDesk in System Settings > Privacy & Security > Files and Folders > Downloads Folder.")
+	}
 	transfer.SweepPartials(downloads)
+	// From macOS 15 a program may reach computers on its own network only
+	// once the operator allows it, and the first try is what asks. Asked
+	// now too, so a viewer next door is not refused behind the consent
+	// prompt. Nothing to do elsewhere.
+	webrtc.AskLocalNetwork()
 
 	coordinator := session.NewCoordinator(rtdb, manager.UID(), iceCfg, captureOpts, appVersion, picker, cfg.ClipboardMode)
 	coordinator.FirewallOwner(func() string {
@@ -337,14 +364,15 @@ func run(parent context.Context, cfg *config.Config, win ui.Window) error {
 	return nil
 }
 
-// watchFirewall tells the operator when Windows Defender Firewall would keep
-// every viewer out: the one thing on the machine itself that does, and one
-// nobody thinks of, because the program looks healthy in every other way and
-// a viewer only sees "could not connect". The question Windows asks at
-// start-up is easy to miss or to cancel, and an old allow rule may cover the
-// wrong kind of network. The check happens in the background; while the
-// answer is bad it is asked again now and then, so the warning clears once
-// Allow has been clicked.
+// watchFirewall tells the operator when the firewall (Windows Defender
+// Firewall, the macOS firewall) would keep every viewer out: the one thing on
+// the machine itself that does, and one nobody thinks of, because the program
+// looks healthy in every other way and a viewer only sees "could not
+// connect". The question Windows asks at start-up is easy to miss or to
+// cancel, and an old allow rule may cover the wrong kind of network; on macOS
+// a Deny clicked once, or "Block all incoming connections", stays in force.
+// The check happens in the background; while the answer is bad it is asked
+// again now and then, so the warning clears once Allow has been clicked.
 //
 // When a security product (Norton, Kaspersky, …) has taken the firewall over,
 // Windows' rules are not enforced and Windows never asks, so they are no
@@ -363,8 +391,8 @@ func watchFirewall(ctx context.Context, win ui.Window, onOwner func(name string)
 			diag.Printf("[host-agent] firewall check: %v", err)
 			return
 		}
-		diag.Printf("[host-agent] firewall: owner=%q enabled=%v blocked=%v allowed=%v elsewhere=%v network=%q",
-			st.Owner, st.Enabled, st.Blocked, st.Allowed, st.Elsewhere, st.Network)
+		diag.Printf("[host-agent] firewall: owner=%q enabled=%v blockall=%v blocked=%v allowed=%v elsewhere=%v network=%q",
+			st.Owner, st.Enabled, st.BlockAll, st.Blocked, st.Allowed, st.Elsewhere, st.Network)
 		if st.Owner != "" {
 			onOwner(st.Owner)
 			if warned && ctx.Err() == nil {
@@ -374,7 +402,7 @@ func watchFirewall(ctx context.Context, win ui.Window, onOwner func(name string)
 		}
 		if st.Reachable() {
 			if warned && ctx.Err() == nil {
-				log.Println("[host-agent] Windows now lets other computers connect to this one.")
+				log.Println("[host-agent] " + firewall.Unblocked)
 				setStatus(win, "Waiting for connection requests…")
 			}
 			return
@@ -382,7 +410,7 @@ func watchFirewall(ctx context.Context, win ui.Window, onOwner func(name string)
 		if !warned {
 			warned = true
 			explainFirewall(st)
-			setStatus(win, "Windows is blocking connections to this computer")
+			setStatus(win, firewall.Blocking)
 		}
 		select {
 		case <-ctx.Done():
@@ -400,24 +428,11 @@ var checkFirewall = func(ctx context.Context, exe string) (firewall.Status, erro
 	return firewall.Check(ctx, exe)
 }
 
-// explainFirewall says what Windows is doing and what to click, in words for
-// the person at the machine.
+// explainFirewall says what the firewall is doing and what to click, in
+// words for the person at the machine.
 func explainFirewall(st firewall.Status) {
-	switch {
-	case st.Blocked:
-		log.Println("[host-agent] Windows is blocking this program's network access, so nobody can connect to this computer.")
-		log.Println("[host-agent]   Windows Security > Firewall & network protection > Allow an app through firewall:")
-		log.Println("[host-agent]   remove the entry that blocks FreeDesk, then allow it with both Private and Public ticked.")
-	case len(st.Elsewhere) > 0:
-		log.Printf("[host-agent] Windows allows this program only on %s networks, but this computer is on a %s network now, so nobody can connect to it.",
-			strings.Join(st.Elsewhere, " and "), st.Network)
-		log.Println("[host-agent]   Windows Security > Firewall & network protection > Allow an app through firewall:")
-		log.Println("[host-agent]   find FreeDesk (freedesk.exe) and tick both Private and Public.")
-	default:
-		log.Println("[host-agent] Windows has not yet allowed this program to receive connections, so nobody can connect to this computer.")
-		log.Println("[host-agent]   If a Windows Security window is asking about FreeDesk, click \"Allow access\".")
-		log.Println("[host-agent]   Otherwise: Windows Security > Firewall & network protection > Allow an app through firewall >")
-		log.Println("[host-agent]   Allow another app... > choose freedesk.exe, and tick both Private and Public.")
+	for _, line := range st.Advice() {
+		log.Println("[host-agent] " + line)
 	}
 }
 

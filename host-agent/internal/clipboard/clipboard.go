@@ -6,7 +6,8 @@
 // THREAD that opened it, and Go moves goroutines between threads at will, so a
 // close can land on a different thread than its open and fail. The same thread
 // owns a message-only window, because opening the clipboard with no window
-// makes every write fail.
+// makes every write fail. The macOS pasteboard (clipboard_darwin.go) has no
+// such ties, and the same worker serves it.
 package clipboard
 
 import "errors"
@@ -44,11 +45,12 @@ type Board interface {
 	// WriteText replaces the clipboard with text.
 	WriteText(s string) error
 	// ReadFiles returns the absolute paths of files on the clipboard, and false
-	// if it holds none. Copying a file in Explorer is what puts them there.
+	// if it holds none. Copying a file in Explorer or the Finder is what puts
+	// them there.
 	ReadFiles() ([]string, bool, error)
-	// WriteFiles puts files on the clipboard so they can be pasted in Explorer.
-	// The paths must be absolute and must keep existing: the bytes are read at
-	// PASTE time, not now.
+	// WriteFiles puts files on the clipboard so they can be pasted in Explorer
+	// or the Finder. The paths must be absolute and must keep existing: the
+	// bytes are read at PASTE time, not now.
 	WriteFiles(paths []string) error
 	// Excluded reports whether the current contents are marked as not for
 	// history or sync. Password managers set this; honouring it means a

@@ -41,7 +41,7 @@ func openGDI() (*gdiSource, error) {
 
 func (s *gdiSource) name() string { return "GDI screen copy" }
 
-func (s *gdiSource) current() *dib { return s.frame }
+func (s *gdiSource) current() *picture { return s.frame.pictureOrNil() }
 
 func (s *gdiSource) origin() (x, y int) { return 0, 0 }
 

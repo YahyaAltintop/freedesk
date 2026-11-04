@@ -1,7 +1,7 @@
 // Package ui shows the operator the one thing they need — this computer's
 // code — and a record of what the agent did. It never asks a question; the
-// consent package does that. On Windows it is a small native window; elsewhere
-// there is no window and the agent keeps using the console.
+// consent package does that. On Windows and macOS it is a small native window;
+// elsewhere there is no window and the agent keeps using the console.
 package ui
 
 import (
@@ -18,13 +18,15 @@ type Options struct {
 	// Title is the window title.
 	Title string
 	// OnClose runs once, on the UI thread, the first time the operator asks
-	// the window to close (or Windows ends the session). It must not block;
-	// cancelling the agent's context is the intended use. The window stays
-	// open, saying "Stopping…", until Done is called.
+	// the window to close (or quits, or the system ends the session: logging
+	// out, shutting down). It must not block; cancelling the agent's context
+	// is the intended use. The window stays open, saying "Stopping…", until
+	// Done is called.
 	OnClose func()
 	// Licenses is what the Licenses button shows: FreeDesk's license and those
-	// of the code built into the exe, with Windows line endings. Empty means
-	// no button (a developer build without generated license texts).
+	// of the code built into the program, with the platform's line endings.
+	// Empty means no button (a developer build without generated license
+	// texts).
 	Licenses string
 	// PrivacyURL is the page the Privacy button opens in the browser: what the
 	// program sends, where, and for how long. The caller builds it from its

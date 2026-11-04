@@ -91,6 +91,55 @@ jobs:
           go run ./cmd/importcheck -licenses internal/licenses/generated/LICENSES.txt ../ci-dist/freedesk.exe
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+  host-agent-macos:
+    name: Host agent (Go, macOS)
+    # Apple silicon, which runs the tests; the Intel half of the app is built
+    # too, but nothing here runs it.
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: host-agent
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: host-agent/go.mod
+          cache-dependency-path: host-agent/go.sum
+      # The Xcode the runner image selects, whose SDK must be macOS 15.4 or
+      # newer (internal/macos stops the build otherwise), and nasm for the
+      # Intel half of libvpx, in whatever version Homebrew has.
+      - name: Toolchain
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          xcodebuild -version
+          echo "macOS SDK $(xcrun --sdk macosx --show-sdk-version)"
+          brew install nasm
+      - name: Build libvpx (VP8 encoder, static, Apple silicon and Intel)
+        run: bash scripts/build-libvpx.sh
+      - name: gofmt
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then echo "gofmt needed:"; echo "$files"; exit 1; fi
+      - run: go build ./...
+      - run: go vet ./...
+      # The tests that show windows and dialogs, record the screen or move
+      # the pointer are opt-in and skip here; the clipboard's run on a
+      # pasteboard of their own.
+      - run: go test ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      # The release app, as the release builds it but signed ad hoc: one
+      # program for Apple silicon and Intel, for macOS 13 and newer, that
+      # needs no library macOS does not ship, has the video encoder and
+      # carries its license texts (scripts/bundle-mac.sh checks all of it).
+      - name: Check the release app
+        run: |
+          go run ./cmd/notices -o internal/licenses/generated/LICENSES.txt
+          bash scripts/bundle-mac.sh --out ../ci-dist
+
   frontend:
     name: Viewer (Vue)
     runs-on: ubuntu-latest

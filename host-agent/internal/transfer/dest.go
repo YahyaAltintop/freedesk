@@ -132,8 +132,8 @@ func Finish(f *os.File, finalPath string) error {
 	if err := os.Rename(finalPath+partSuffix, finalPath); err != nil {
 		return err
 	}
-	// Tag it the way a browser tags a download, so Windows knows this file came
-	// from another machine and warns before anyone runs it.
+	// Tag it the way a browser tags a download, so the system knows this file
+	// came from another machine and warns before anyone runs it.
 	markDownloaded(finalPath)
 	return nil
 }

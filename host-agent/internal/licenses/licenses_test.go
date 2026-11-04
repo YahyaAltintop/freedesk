@@ -1,6 +1,7 @@
 package licenses
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -22,7 +23,11 @@ func TestText(t *testing.T) {
 			t.Errorf("the license texts do not mention %q", want)
 		}
 	}
-	if !strings.Contains(text, "\r\n") {
+	crlf := strings.Contains(text, "\r\n")
+	if runtime.GOOS == "windows" && !crlf {
 		t.Error("the texts must have Windows line endings, for the window and for Notepad")
+	}
+	if runtime.GOOS != "windows" && crlf {
+		t.Error("the texts must have the platform's own line endings, LF")
 	}
 }

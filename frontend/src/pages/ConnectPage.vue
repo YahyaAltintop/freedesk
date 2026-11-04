@@ -15,6 +15,7 @@ import { useServerNow } from '@/composables/useServerNow'
 import { isHostOnline } from '@/utils/presence'
 import { toFriendlyError } from '@/utils/firebaseErrors'
 import { formatPairingCode } from '@/utils/pairingCode'
+import { localPlatform } from '@/utils/platform'
 import { RouteName } from '@/constants/routes'
 import type { Host } from '@/types/host'
 import type { InputMessage } from '@/types/input'
@@ -24,6 +25,12 @@ const props = defineProps<{ hostId: string }>()
 
 const router = useRouter()
 const authStore = useAuthStore()
+
+// What the browser can never pass on, even in fullscreen: the shortcuts this
+// computer's own system keeps for itself.
+const localShortcuts =
+  localPlatform() === 'mac' ? 'Command+Tab and the other system shortcuts' : 'Alt+Tab and the Windows key'
+
 const {
   state,
   error,
@@ -432,8 +439,8 @@ onBeforeUnmount(() => {
           v-else-if="!isFullscreen && fullscreenSupported"
           class="fd-stage-hint position-absolute bottom-0 start-50 translate-middle-x mb-2 small text-white-50 px-2 py-1 rounded"
         >
-          Keys go to the remote computer. Go fullscreen to send browser shortcuts too — Alt+Tab and
-          the Windows key always stay on this computer.
+          Keys go to the remote computer. Go fullscreen to send browser shortcuts too —
+          {{ localShortcuts }} always stay on this computer.
         </div>
       </template>
 
@@ -478,8 +485,8 @@ onBeforeUnmount(() => {
 /* The session fills the viewport exactly and never scrolls: the toolbar takes
    what it needs, the video gets the rest. `position: fixed` takes the stage out
    of the app shell, whose own min-height would otherwise stack with the
-   toolbar and push the bottom of the remote screen — the Windows taskbar —
-   below the fold. */
+   toolbar and push the bottom of the remote screen — the taskbar, or the
+   Dock — below the fold. */
 .fd-stage {
   position: fixed;
   top: 0;

@@ -1,7 +1,9 @@
-// Package firewall tells whether Windows Defender Firewall is set to block
-// this program — the one thing on the machine itself that leaves an otherwise
-// healthy agent unreachable, and the one the operator can fix — or which
-// security product has taken the firewall over, when one has.
+// Package firewall tells whether the computer's firewall (Windows Defender
+// Firewall, the macOS firewall) is set to block this program — the one thing
+// on the machine itself that leaves an otherwise healthy agent unreachable,
+// and the one the operator can fix — or which security product has taken the
+// firewall over, when one has. It also has the words for the operator: what
+// the firewall is doing, and where to click.
 package firewall
 
 import (

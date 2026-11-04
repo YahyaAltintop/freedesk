@@ -1,9 +1,10 @@
 // Package capture grabs the primary monitor and encodes it to VP8 inside the
-// agent, handing the encoded frames over a channel. The screen comes from
-// desktop duplication (DXGI) or, where that is not available, a GDI copy; the
-// mouse pointer is drawn in; libvpx, linked into the exe (internal/vpx),
-// encodes. No other program is started and nothing is loaded from outside
-// System32.
+// agent, handing the encoded frames over a channel. On Windows the screen
+// comes from desktop duplication (DXGI) or, where that is not available, a
+// GDI copy, and the mouse pointer is drawn in; on macOS ScreenCaptureKit
+// delivers it with the pointer. libvpx, linked into the agent (internal/vpx),
+// encodes. No other program is started, and nothing is loaded from outside
+// the system's own libraries.
 package capture
 
 import (

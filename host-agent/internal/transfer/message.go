@@ -99,7 +99,7 @@ type Msg struct {
 	Reason string `json:"reason,omitempty"`
 	// Clip marks a batch the viewer pasted rather than dropped. Once it is
 	// saved the host also puts it on its own clipboard, so the operator can
-	// paste it in Explorer.
+	// paste it in Explorer or the Finder.
 	Clip bool `json:"clip,omitempty"`
 }
 

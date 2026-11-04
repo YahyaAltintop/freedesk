@@ -7,30 +7,37 @@ import (
 	"unicode"
 )
 
-// Status is what Windows Defender Firewall would do with a packet for this
-// program arriving from another computer.
+// Status is what the computer's firewall would do with a packet for this
+// program arriving from another computer: Windows Defender Firewall on
+// Windows, the firewall of System Settings > Network on macOS.
 type Status struct {
 	// Owner names the security product that has taken the firewall over from
 	// Windows (Norton 360, Kaspersky, …), or is empty when Windows Defender
 	// Firewall does the job itself. With an owner, Windows' profiles still
 	// read as on but its rules are not enforced and it never asks about a
-	// program, so nothing below says what reaches this one.
+	// program, so nothing below says what reaches this one. Windows only.
 	Owner string
-	// Enabled is whether any firewall profile is on. Off, nothing below
-	// matters and the program is reachable.
+	// Enabled is whether the firewall is on (on Windows, any of its
+	// profiles). Off, nothing below matters and the program is reachable.
 	Enabled bool
-	// Blocked is whether an enabled inbound block rule names the program. A
-	// block rule wins over every allow rule.
+	// BlockAll is whether the firewall refuses every incoming connection but
+	// the system's own, whatever it says about programs: macOS's "Block all
+	// incoming connections".
+	BlockAll bool
+	// Blocked is whether the firewall blocks the program by name: on Windows
+	// an enabled inbound block rule names it, and wins over every allow
+	// rule; on macOS it is set to block incoming connections.
 	Blocked bool
-	// Allowed is whether an enabled inbound allow rule names the program for
-	// the kind of network the computer is on now.
+	// Allowed is whether the firewall lets the program in: on Windows an
+	// enabled inbound allow rule names it for the kind of network the
+	// computer is on now; on macOS nothing blocks it (see Check there).
 	Allowed bool
 	// Elsewhere lists the network kinds allow rules for the program do name,
 	// when none of them covers the current one: the operator ticked Public
-	// and the computer is on a Private network, typically.
+	// and the computer is on a Private network, typically. Windows only.
 	Elsewhere []string
 	// Network is the kind of network the computer is on (Private, Public,
-	// Domain), or empty when Windows could not say.
+	// Domain), or empty when Windows could not say. Windows only.
 	Network string
 }
 
@@ -38,7 +45,7 @@ type Status struct {
 // another product owns the firewall its rules cannot be read from here, and
 // silence is better than a false alarm.
 func (s Status) Reachable() bool {
-	return s.Owner != "" || !s.Enabled || (!s.Blocked && s.Allowed)
+	return s.Owner != "" || !s.Enabled || (!s.BlockAll && !s.Blocked && s.Allowed)
 }
 
 // maxOwnerLen bounds a product name before it reaches the operator's window.

@@ -2,6 +2,8 @@ package consent
 
 import (
 	"context"
+	"log"
+	"sync"
 	"time"
 )
 
@@ -43,6 +45,25 @@ func NewFilePicker(mode string) FilePicker {
 		return unavailable{}
 	}
 	return newPlatformPicker()
+}
+
+// pickerGate is what every native picker embeds: one picker at a time, and a
+// cooldown between them.
+type pickerGate struct {
+	mu       sync.Mutex
+	lastShow time.Time
+}
+
+// claim reports whether a picker may open now and, if so, counts it as shown.
+func (g *pickerGate) claim() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if time.Since(g.lastShow) < pickerCooldown {
+		log.Printf("[consent] ignoring a file picker request: too soon after the last one")
+		return false
+	}
+	g.lastShow = time.Now()
+	return true
 }
 
 // unavailable stands in wherever there is no native picker.

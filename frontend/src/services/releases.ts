@@ -1,17 +1,35 @@
 // Looks up the latest GitHub release so the download button can show the
-// version and size and link straight to freedesk.exe. When the API is
-// unreachable or no release exists yet, the button falls back to the Releases
-// page.
+// version and size and link straight to the host program: freedesk.exe for
+// Windows, FreeDesk.dmg for macOS. When the API is unreachable or no
+// release exists yet, the button falls back to the Releases page.
 
 import { ref, type Ref } from 'vue'
-import { HOST_ASSET_NAME, LATEST_RELEASE_API_URL, RELEASES_URL } from '@/constants/links'
+import { HOST_ASSET_NAMES, LATEST_RELEASE_API_URL, RELEASES_URL } from '@/constants/links'
+
+export type HostSystem = keyof typeof HOST_ASSET_NAMES
+
+export interface HostDownload {
+  url: string
+  sizeBytes: number | null
+}
 
 export interface HostRelease {
   /** Tag name without the leading "v". */
   version: string
-  downloadUrl: string
-  sizeBytes: number | null
+  /** The release's page: every download, with its checksum and notes. */
+  pageUrl: string
+  /** The program for each system the release has one for. */
+  downloads: Partial<Record<HostSystem, HostDownload>>
   publishedAt: string | null
+}
+
+/**
+ * The download for one system. A release without that program (a failed
+ * build, or one from before the program existed) still gets a working link:
+ * its page.
+ */
+export function downloadFor(release: HostRelease, system: HostSystem): HostDownload {
+  return release.downloads[system] ?? { url: release.pageUrl, sizeBytes: null }
 }
 
 export type ReleaseLookup =
@@ -21,7 +39,9 @@ export type ReleaseLookup =
   /** API unreachable or rate-limited: use the generic "latest" link. */
   | { state: 'unknown' }
 
-const CACHE_KEY = 'freedesk.latestRelease'
+// Versioned with the shape of what is stored: a tab that kept an older shape
+// across a deploy reads nothing instead of something it cannot use.
+const CACHE_KEY = 'freedesk.latestRelease.v2'
 const CACHE_TTL_MS = 10 * 60 * 1000
 
 interface CacheEntry {
@@ -82,15 +102,22 @@ export async function fetchLatestHostRelease(timeoutMs = 5000): Promise<ReleaseL
       return { state: 'unknown' }
     }
     const data = (await response.json()) as GitHubRelease
-    const asset = data.assets?.find((a) => a.name === HOST_ASSET_NAME)
+    const downloads: HostRelease['downloads'] = {}
+    for (const system of Object.keys(HOST_ASSET_NAMES) as HostSystem[]) {
+      const asset = data.assets?.find((a) => a.name === HOST_ASSET_NAMES[system])
+      if (asset?.browser_download_url) {
+        downloads[system] = {
+          url: asset.browser_download_url,
+          sizeBytes: typeof asset.size === 'number' ? asset.size : null,
+        }
+      }
+    }
     return {
       state: 'found',
       release: {
         version: (data.tag_name ?? '').replace(/^v/, ''),
-        // A release without the exe (a failed build, or one from before the
-        // single-file download) still gets a working link: its page.
-        downloadUrl: asset?.browser_download_url ?? data.html_url ?? RELEASES_URL,
-        sizeBytes: typeof asset?.size === 'number' ? asset.size : null,
+        pageUrl: data.html_url ?? RELEASES_URL,
+        downloads,
         publishedAt: data.published_at ?? null,
       },
     }

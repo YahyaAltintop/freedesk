@@ -1,6 +1,6 @@
 # Frontend (Viewer) — Vue 3 + TypeScript
 
-The viewer application that runs in the browser. There is no login screen: on startup an invisible **anonymous** Firebase session is established. The home page is also the product's landing page: it explains the flow, lets you enter a remote computer's 6-digit code and connect, shows this computer's own code when the host agent is running on the same machine, and otherwise offers the host agent download (the latest zip from the GitHub Releases of `VITE_GITHUB_REPO`).
+The viewer application that runs in the browser. There is no login screen: on startup an invisible **anonymous** Firebase session is established. The home page is also the product's landing page: it explains the flow, lets you enter a remote computer's 6-digit code and connect, shows this computer's own code when the host agent is running on the same machine, and otherwise offers the host agent download from the latest GitHub release of `VITE_GITHUB_REPO`: `freedesk.exe` for Windows, `FreeDesk.dmg` for a Mac, whichever this computer is first.
 
 ## Technologies
 Vue 3 (Composition API) · TypeScript · Vite · Vue Router · Pinia · Bootstrap 5 · Firebase Web SDK (modular). Fonts are self-hosted through `@fontsource-variable` (Inter for text, JetBrains Mono for headings, codes and labels); the design tokens live in `src/assets/main.css`.
@@ -49,13 +49,14 @@ npm run dev
 
 > For the "Share this computer" card to show the code, the host agent must be running
 > on the same machine (the code is read from `http://127.0.0.1:47800/identity`; the page
-> re-probes every few seconds). Until then the card shows the download steps and a
-> **Download for Windows** button that resolves the latest release through the GitHub
-> API (`api.github.com/repos/<VITE_GITHUB_REPO>/releases/latest`, cached for 10 minutes;
-> falls back to the generic `releases/latest/download/...` link). While the agent runs, the
-> card compares the version it reports with that latest release and shows an **Update
-> available** notice with a download link when it is behind. The agent is not needed just
-> to connect to another computer.
+> re-probes every few seconds, on Windows and macOS only). Until then the card shows the
+> download steps and a **Download for Windows** or **Download for Mac** button, after this
+> computer's system (`src/utils/platform.ts`), which resolves the latest release through
+> the GitHub API (`api.github.com/repos/<VITE_GITHUB_REPO>/releases/latest`, cached for 10
+> minutes; falls back to the Releases page) and names the other system's download too.
+> While the agent runs, the card compares the version it reports with that latest release
+> and shows an **Update available** notice with a download link when it is behind. The
+> agent is not needed just to connect to another computer.
 
 All data lives in the Firebase Realtime Database (host records, the per-owner session inbox and WebRTC signaling); there is no Firestore.
 

@@ -11,7 +11,8 @@ import (
 
 // Approval modes.
 const (
-	// ModeDialog shows a native Yes/No window (Windows only; the default there).
+	// ModeDialog shows a native Yes/No window (Windows and macOS; the default
+	// there).
 	ModeDialog = "dialog"
 	// ModeConsole asks "y + Enter" on the console (the only mode elsewhere).
 	ModeConsole = "console"

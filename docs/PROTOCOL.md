@@ -180,11 +180,12 @@ All messages contain a `t` (type) field. Coordinates are **normalized**: `x` and
 - `dy`: vertical wheel delta. **Windows `WHEEL_DELTA` = 120** is the reference; one "tick" = `120`. Positive `dy` = up, negative `dy` = down (Windows `mouse_event` convention).
 - `dx`: horizontal wheel delta (same scale). `0` if there is no horizontal scroll.
 - The client converts the browser's `WheelEvent.deltaY` value to this scale.
+- A macOS host posts the same numbers as pixels (one tick, 120 pixels), up and left positive as CoreGraphics counts them.
 
 #### Keyboard (`code`)
 - `code` is the browser's [`KeyboardEvent.code`](https://developer.mozilla.org/docs/Web/API/KeyboardEvent/code) value (physical key; independent of keyboard layout), e.g. `"KeyA"`, `"Digit1"`, `"Enter"`, `"ShiftLeft"`, `"ArrowUp"`.
 - **Modifier keys are separate events.** For example, for an uppercase `A`: `kd ShiftLeft` → `kd KeyA` → `ku KeyA` → `ku ShiftLeft`. There is no separate "modifiers" field; the host tracks key state from the events, just like a real keyboard.
-- The host side maps `code` → Windows virtual key code.
+- The host side maps `code` → the system's own key code: a Windows virtual key, or on macOS a `kVK_` key code, where `MetaLeft`/`MetaRight` are ⌘ and `AltLeft`/`AltRight` are ⌥. A macOS host sends every key and click with the modifiers held at that moment, as macOS expects.
 
 ### 3.2 Held-state rule (both sides)
 Both peers remember what is currently pressed.
@@ -193,7 +194,8 @@ Both peers remember what is currently pressed.
 A key or button must never remain pressed on the host after the viewer is gone.
 
 ### 3.3 Coordinate conversion (host side)
-Normalized coordinates are an **exact** match for Windows `SendInput`:
+A macOS host maps them onto the main display in points (`x * width`, `y * height`, the origin top left, as in the picture it sends). On Windows,
+normalized coordinates are an **exact** match for `SendInput`:
 ```
 absX = round(x * 65535)
 absY = round(y * 65535)
@@ -258,7 +260,7 @@ sentence shown.
 | `denied` | The operator said no, or the picker was cancelled |
 | `busy` | Another batch is already being decided or written |
 | `too-large` | Past a size limit, or more bytes arrived than were declared |
-| `bad-name` | The name cannot be made safe to write on Windows |
+| `bad-name` | The name cannot be made safe to write (by Windows' rules, which every host applies) |
 | `no-space` | Not enough room on the receiving volume |
 | `io` | The disk refused |
 | `gone` | The session ended mid-transfer |
@@ -310,9 +312,14 @@ Normative host requirements:
   and skips it. A sequence number rather than a content comparison, because
   copying the same thing twice is a real thing people do and should still sync.
 - Contents marked `ExcludeClipboardContentFromMonitorProcessing`, or
-  `CanIncludeInClipboardHistory` set to zero, **must be skipped**. Password
-  managers set these, so honouring them means a password copied from one never
-  reaches the viewer.
+  `CanIncludeInClipboardHistory` set to zero, **must be skipped**, and on macOS
+  contents of the types `org.nspasteboard.ConcealedType` or
+  `org.nspasteboard.TransientType`. Password managers set these, so honouring
+  them means a password copied from one never reaches the viewer.
+- On macOS 15.4 and newer, where macOS asks the operator before a program
+  reads what they copied, the host reads it only while they let FreeDesk paste
+  from other apps without asking. Until then nothing the operator copies is
+  sent; what the viewer sends is still written.
 - Clipboard contents are **never logged**. Lengths only.
 - Sharing is advertised as `clip.text` and can be switched off entirely
   (`RC_CLIPBOARD=off`), in which case the capability is absent and nothing reads
@@ -331,9 +338,9 @@ never-overwrite rule for free.
 objects, so they go out as a normal `f-offer` with `dir: "up"` and
 **`clip: true`**. The host saves them exactly as it saves a dropped batch, and
 then *also* puts them on its own clipboard, so the operator can paste them in
-Explorer. Because they live in the downloads folder rather than anywhere
-temporary, they are still there when the paste happens — Windows reads the
-bytes at paste time, not at copy time.
+Explorer or the Finder. Because they live in the downloads folder rather than
+anywhere temporary, they are still there when the paste happens — the system
+reads the bytes at paste time, not at copy time.
 
 The host does **not** inject the paste itself. A transfer can take minutes, and
 firing Ctrl+V into whatever window happens to be focused when it finishes is
@@ -345,8 +352,9 @@ are sent; nothing is read until the viewer accepts a file.
 
 > **What cannot work, in any browser.** A web page cannot put real files on the
 > operating system's clipboard: `ClipboardItem` accepts a short list of MIME
-> types and there is no API that writes `CF_HDROP`. So *copy in the remote
-> Explorer, paste in the local one* will never work, and the viewer presents
+> types and there is no API that writes files (`CF_HDROP` on Windows, file URLs
+> on a Mac). So *copy in the remote Explorer or Finder, paste in the local one*
+> will never work, and the viewer presents
 > that direction as a download instead. Folders are also out — the browser hands
 > over files from a paste, never directory contents.
 

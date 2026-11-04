@@ -8,9 +8,9 @@ import (
 // spaceHeadroom is what a batch must leave behind on the volume it lands on.
 //
 // Accepting a transfer that fits to the last byte is its own kind of damage:
-// Windows needs room to page, to log, and to let the operator delete the very
-// file that filled the disk. The margin costs nothing — anybody this close to
-// full has a problem a refused transfer did not create.
+// the system needs room to page, to log, and to let the operator delete the
+// very file that filled the disk. The margin costs nothing — anybody this
+// close to full has a problem a refused transfer did not create.
 const spaceHeadroom = 64 << 20
 
 // nearestExisting walks up from dir to the first path that exists.

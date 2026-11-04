@@ -2,7 +2,7 @@ module github.com/YahyaAltintop/freedesk/host-agent
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/pion/ice/v4 v4.4.2

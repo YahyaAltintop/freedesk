@@ -192,7 +192,7 @@ export function reasonText(reason: TransferReason | undefined): string {
     case 'too-large':
       return 'Too large to send'
     case 'bad-name':
-      return 'That file name cannot be saved on Windows'
+      return 'That file name cannot be saved on the other computer'
     case 'no-space':
       return 'Not enough space on the other computer'
     case 'gone':

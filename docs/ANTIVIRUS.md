@@ -22,6 +22,10 @@ A remote desktop also does what malware of that kind does: it captures the scree
 - **Check the file** as above before you decide anything else about it.
 - A cleared release stops being blocked once the product's definitions update. Norton says it reviews reports within 48 hours.
 
+## On a Mac
+
+macOS has its own checks, and no antivirus of the kind above is needed for them to apply. XProtect, built into macOS, scans what is downloaded. Gatekeeper then decides whether the app may open: until FreeDesk is signed with an Apple Developer ID and notarized by Apple, it refuses at first ("Apple could not verify…"), and the operator chooses **Open Anyway** in System Settings → Privacy & Security ([RELEASING.md → Signing the Mac app](RELEASING.md#signing-the-mac-app)). Check the file before that: `shasum -a 256 -c FreeDesk.dmg.sha256` next to the download, or `gh attestation verify FreeDesk.dmg --repo YahyaAltintop/freedesk`.
+
 ## What the project does
 
 - A flagged release is reported to the vendors as a false detection: to Gen Digital (Norton, Avast, AVG) first, then to the others that flag it on VirusTotal. The steps: [RELEASING.md → Antivirus false positives](RELEASING.md#antivirus-false-positives). What has been sent so far is in the table below.

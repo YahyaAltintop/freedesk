@@ -36,9 +36,9 @@ func exclusive(fn func()) {
 // Busy reports whether a question is in front of the operator right now.
 //
 // The session asks this before applying anything the viewer sends. A prompt is
-// drawn on the very screen the viewer is watching, and input injected with
-// SendInput lands on it exactly as a local click would. So without this the
-// viewer could answer the question that exists only for the operator to
-// answer. That is not a supposition: session/inputgate_windows_test.go clicks
-// the Yes button through the input path and checks that nothing happens.
+// drawn on the very screen the viewer is watching, and the input the agent
+// injects (SendInput, CGEvent) lands on it exactly as a local click would. So
+// without this the viewer could answer the question that exists only for the
+// operator to answer. That is not a supposition: session/inputgate_windows_test.go
+// clicks the Yes button through the input path and checks that nothing happens.
 func Busy() bool { return attention.Load() > 0 }

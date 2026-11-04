@@ -104,6 +104,7 @@ func TestParse(t *testing.T) {
 		"off":            Status{}.Reachable(),
 		"allowed":        Status{Enabled: true, Allowed: true}.Reachable(),
 		"blocked":        !Status{Enabled: true, Allowed: true, Blocked: true}.Reachable(),
+		"blocking all":   !Status{Enabled: true, Allowed: true, BlockAll: true}.Reachable(),
 		"never answered": !Status{Enabled: true}.Reachable(),
 		// Windows' rules say nothing when another product runs the firewall.
 		"owned elsewhere": Status{Owner: "Norton 360", Enabled: true}.Reachable(),

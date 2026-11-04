@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -86,33 +85,6 @@ func inputDesktopReadable() bool {
 	return true
 }
 
-// probeInputDesktop is inputDesktopReadable, replaceable by a test.
-var probeInputDesktop = inputDesktopReadable
-
-// desktopProbeInterval spaces a source's inputDesktopReadable calls. Asked on
-// every tick, a still screen would cost a kernel call thirty times a second
-// for nothing; asked this often, the secure desktop is still noticed within
-// a quarter of a second, before anyone misses a frame.
-const desktopProbeInterval = 250 * time.Millisecond
-
-// desktopProbe answers inputDesktopReadable from an answer at most
-// desktopProbeInterval old. The zero value asks at once.
-type desktopProbe struct {
-	next     time.Time
-	readable bool
-}
-
-// check reports whether the input desktop can be read as of now, asking
-// Windows only when the previous answer is older than desktopProbeInterval.
-func (p *desktopProbe) check(now time.Time) bool {
-	if now.Before(p.next) {
-		return p.readable
-	}
-	p.next = now.Add(desktopProbeInterval)
-	p.readable = probeInputDesktop()
-	return p.readable
-}
-
 func primaryScreenSize() (w, h int) {
 	cx, _, _ := procGetSystemMetrics.Call(smCxScreen)
 	cy, _, _ := procGetSystemMetrics.Call(smCyScreen)
@@ -139,13 +111,12 @@ type bitmapInfo struct {
 
 // dib is a top-down 32-bit BGRA bitmap the size of the captured monitor,
 // selected into a memory DC so GDI can draw into it: the screen copy and the
-// mouse pointer. Its pixels are read directly by the encoder.
+// mouse pointer. Its pixels are read directly by the encoder; the picture it
+// holds is what a source hands the pipeline.
 type dib struct {
-	dc     uintptr
+	picture
 	bitmap uintptr
 	old    uintptr
-	bits   unsafe.Pointer
-	w, h   int
 }
 
 func newDIB(w, h int) (*dib, error) {
@@ -170,12 +141,17 @@ func newDIB(w, h int) (*dib, error) {
 		return nil, fmt.Errorf("CreateDIBSection %dx%d: %w", w, h, err)
 	}
 	old, _, _ := procSelectObject.Call(dc, bm)
-	return &dib{dc: dc, bitmap: bm, old: old, bits: bits, w: w, h: h}, nil
+	return &dib{picture: picture{w: w, h: h, stride: w * 4, bits: bits, dc: dc}, bitmap: bm, old: old}, nil
 }
 
-func (d *dib) stride() int { return d.w * 4 }
-
-func (d *dib) pixels() []byte { return unsafe.Slice((*byte)(d.bits), d.w*d.h*4) }
+// pictureOrNil is the picture the bitmap holds; nil for no bitmap (a source
+// that has not got one yet).
+func (d *dib) pictureOrNil() *picture {
+	if d == nil {
+		return nil
+	}
+	return &d.picture
+}
 
 func (d *dib) close() {
 	if d == nil {

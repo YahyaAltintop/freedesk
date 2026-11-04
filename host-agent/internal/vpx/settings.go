@@ -9,9 +9,10 @@
 // raised from 2 to 3 Mbit/s and on four threads rather than one per CPU. See
 // rateControlFor.
 //
-// Without cgo, or off Windows, NewEncoder reports ErrUnavailable: the rest of
-// the agent still builds and runs, only without a picture. Release builds are
-// checked by cmd/importcheck to have been built with cgo.
+// The encoder is built on Windows and macOS. Without cgo, or on any other
+// platform, NewEncoder reports ErrUnavailable: the rest of the agent still
+// builds and runs, only without a picture. Release builds are checked by
+// cmd/importcheck to have been built with cgo.
 package vpx
 
 import (
@@ -21,7 +22,7 @@ import (
 )
 
 // ErrUnavailable is returned by NewEncoder in a build without the encoder
-// (CGO_ENABLED=0, or a platform other than Windows).
+// (CGO_ENABLED=0, or a platform other than Windows and macOS).
 var ErrUnavailable = errors.New("vpx: this build of the agent has no video encoder")
 
 // Available reports whether this build has the encoder.
